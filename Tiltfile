@@ -174,10 +174,12 @@ def validate_auth():
 tilt_helper_dockerfile_header = """
 # Tilt image
 FROM golang:1.23 AS tilt-helper
+# Install delve. Note this should be kept in step with the Go release minor version.
+RUN go install github.com/go-delve/delve/cmd/dlv@v1.23
 # Support live reloading with Tilt
-RUN wget --output-document /restart.sh --quiet https://raw.githubusercontent.com/windmilleng/rerun-process-wrapper/master/restart.sh  && \
-    wget --output-document /start.sh --quiet https://raw.githubusercontent.com/windmilleng/rerun-process-wrapper/master/start.sh && \
-    chmod +x /start.sh && chmod +x /restart.sh && \
+RUN wget --output-document /restart.sh --quiet https://raw.githubusercontent.com/tilt-dev/rerun-process-wrapper/master/restart.sh  && \
+    wget --output-document /start.sh --quiet https://raw.githubusercontent.com/tilt-dev/rerun-process-wrapper/master/start.sh && \
+    chmod +x /start.sh && chmod +x /restart.sh && chmod +x /go/bin/dlv && \
     touch /process.txt && chmod 0777 /process.txt `# pre-create PID file to allow even non-root users to run the image`
 """
 
@@ -188,6 +190,7 @@ RUN ["/busybox/chmod", "0777", "."]
 COPY --from=tilt-helper /process.txt .
 COPY --from=tilt-helper /start.sh .
 COPY --from=tilt-helper /restart.sh .
+COPY --from=tilt-helper /go/bin/dlv .
 COPY manager .
 """
 
@@ -247,11 +250,12 @@ def observability():
         labels = ["observability"],
     )
 
-    k8s_resource(workload = "capz-controller-manager", labels = ["cluster-api"])
+    k8s_resource(workload = "capz-controller-manager-debug", labels = ["cluster-api"])
     k8s_resource(workload = "azureserviceoperator-controller-manager", labels = ["cluster-api"])
 
 # Build CAPZ and add feature gates
 def capz():
+    debug = settings.get("debug").get('azure', {})
     # Apply the kustomized yaml for this provider
     yaml = str(kustomizesub("./hack/observability"))  # build an observable kind deployment by default
 
@@ -265,9 +269,23 @@ def capz():
 
     # Forge the build command
     ldflags = "-extldflags \"-static\" " + str(local("hack/version.sh")).rstrip("\n")
+    debug_port = int(debug.get("port", 0))
+    if debug_port != 0:
+        # disable optimisations and include line numbers when debugging
+        gcflags = "all=-N -l"
+        k8s_resource(
+            workload = "capz-controller-manager",
+            new_name = "capz-controller-manager-debug",
+            port_forwards = [port_forward(local_port = debug_port, container_port = debug_port, name = "Debug")],
+            labels = ["debug"],
+        )
+    else:
+        gcflags = ""
+
     build_env = "CGO_ENABLED=0 GOOS=linux GOARCH={arch}".format(arch = os_arch)
-    build_cmd = "{build_env} go build -ldflags '{ldflags}' -o .tiltbuild/manager".format(
+    build_cmd = "{build_env} go build -gcflags '{gcflags}' -ldflags '{ldflags}' -o .tiltbuild/manager".format(
         build_env = build_env,
+        gcflags = gcflags,
         ldflags = ldflags,
     )
 

@@ -633,6 +633,8 @@ func registerControllers(ctx context.Context, mgr manager.Manager) {
 		}
 	}
 	if feature.Gates.Enabled(feature.ARO) {
+		setupLog.Info("waiting for the debugger to connect")
+		time.Sleep(time.Second * 10)
 		if err := (&infrav1controllersexp.AROClusterReconciler{
 			Client:           mgr.GetClient(),
 			WatchFilterValue: watchFilterValue,

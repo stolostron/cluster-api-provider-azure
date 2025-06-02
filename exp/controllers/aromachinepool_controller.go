@@ -77,7 +77,7 @@ func (r *AroMachinePoolReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	err = fmt.Errorf("not implemented")
-	log.Error(err, fmt.Sprintf("Reconciling %s", infrav2exp.AROMachinePoolKind))
+	//	err = fmt.Errorf("not implemented")
+	//	log.Error(err, fmt.Sprintf("Reconciling %s", infrav2exp.AROMachinePoolKind))
 	return ctrl.Result{}, err
 }

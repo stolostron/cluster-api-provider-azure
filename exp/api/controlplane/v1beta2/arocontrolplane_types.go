@@ -21,6 +21,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
+	"k8s.io/apimachinery/pkg/runtime"
+
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 )
 
@@ -112,6 +114,12 @@ type AROControlPlaneSpec struct { //nolint: maligned
 	// AdditionalTags are user-defined tags to be added on the AWS resources associated with the control plane.
 	// +optional
 	AdditionalTags infrav1.Tags `json:"additionalTags,omitempty"`
+
+	// TODO: mveber - added
+
+	// Resources are embedded ARO resources to be managed by this resource.
+	//+optional
+	Resources []runtime.RawExtension `json:"resources,omitempty"`
 }
 
 // AROPlatformProfileControlPlane represents the Azure platform configuration.
@@ -268,6 +276,15 @@ type AROControlPlaneStatus struct {
 
 	// Available upgrades for the ARO hosted control plane.
 	AvailableUpgrades []string `json:"availableUpgrades,omitempty"`
+
+	//TODO: mveber - required resources array
+
+	//+optional
+	Resources []infrav1.ResourceStatus `json:"resources,omitempty"`
+
+	// ControlPlaneEndpoint represents the endpoint for the cluster's API server.
+	//+optional
+	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint"`
 }
 
 // +kubebuilder:object:root=true
@@ -315,6 +332,16 @@ func (r *AROControlPlane) GetConditions() clusterv1.Conditions {
 // SetConditions sets the status conditions for the AROControlPlane.
 func (r *AROControlPlane) SetConditions(conditions clusterv1.Conditions) {
 	r.Status.Conditions = conditions
+}
+
+// TODO: mveber - added
+func (r *AROControlPlane) GetResourceStatuses() []infrav1.ResourceStatus {
+	return r.Status.Resources
+}
+
+// TODO: mveber - added
+func (r *AROControlPlane) SetResourceStatuses(statuses []infrav1.ResourceStatus) {
+	r.Status.Resources = statuses
 }
 
 func init() {
