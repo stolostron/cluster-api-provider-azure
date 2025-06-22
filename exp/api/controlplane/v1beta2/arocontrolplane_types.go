@@ -21,8 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
-	"k8s.io/apimachinery/pkg/runtime"
-
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 )
 
@@ -114,12 +112,6 @@ type AROControlPlaneSpec struct { //nolint: maligned
 	// AdditionalTags are user-defined tags to be added on the AWS resources associated with the control plane.
 	// +optional
 	AdditionalTags infrav1.Tags `json:"additionalTags,omitempty"`
-
-	// TODO: mveber - added
-
-	// Resources are embedded ARO resources to be managed by this resource.
-	//+optional
-	Resources []runtime.RawExtension `json:"resources,omitempty"`
 }
 
 // AROPlatformProfileControlPlane represents the Azure platform configuration.
@@ -272,19 +264,24 @@ type AROControlPlaneStatus struct {
 	APIURL string `json:"apiURL,omitempty"`
 
 	// ARO-HCP OpenShift semantic version, for example "4.20.0".
-	Version string `json:"version"`
+        // TODO: mveber - mohamed's proposal +omitempty
+	Version string `json:"version,omitempty"`
 
 	// Available upgrades for the ARO hosted control plane.
 	AvailableUpgrades []string `json:"availableUpgrades,omitempty"`
 
-	//TODO: mveber - required resources array
-
-	//+optional
-	Resources []infrav1.ResourceStatus `json:"resources,omitempty"`
+	//TODO: mveber - required ControlPlaneEndpoint
 
 	// ControlPlaneEndpoint represents the endpoint for the cluster's API server.
 	//+optional
 	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint"`
+
+	//TODO: mveber - required for features
+
+	// LongRunningOperationStates saves the state for ARO long-running operations so they can be continued on the
+	// next reconciliation loop.
+	// +optional
+	LongRunningOperationStates infrav1.Futures `json:"longRunningOperationStates,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -307,12 +304,31 @@ type AROControlPlane struct {
 	Status AROControlPlaneStatus `json:"status,omitempty"`
 }
 
+// GetFutures returns the list of long running operation states for an AzureCluster API object.
+func (c *AROControlPlane) GetFutures() infrav1.Futures {
+	return c.Status.LongRunningOperationStates
+}
+
+// SetFutures will set the given long running operation states on an AzureCluster object.
+func (c *AROControlPlane) SetFutures(futures infrav1.Futures) {
+	c.Status.LongRunningOperationStates = futures
+}
+
 const (
 	// AROControlPlaneKind is the kind for AROControlPlane.
 	AROControlPlaneKind = "AROControlPlane"
 
 	// AROControlPlaneFinalizer is the finalizer added to AROControlPlanes.
 	AROControlPlaneFinalizer = "arocontrolplanes/finalizer"
+
+	// AROControlPlaneReadyCondition condition reports on the successful reconciliation of AROControlPlane.
+	AROControlPlaneReadyCondition clusterv1.ConditionType = "AROControlPlaneReady"
+
+	// AROControlPlaneValidCondition condition reports whether AROControlPlane configuration is valid.
+	AROControlPlaneValidCondition clusterv1.ConditionType = "AROControlPlaneValid"
+
+	// AROControlPlaneUpgradingCondition condition reports whether AROControlPlane is upgrading or not.
+	AROControlPlaneUpgradingCondition clusterv1.ConditionType = "AROControlPlaneUpgrading"
 )
 
 // +kubebuilder:object:root=true
@@ -332,16 +348,6 @@ func (r *AROControlPlane) GetConditions() clusterv1.Conditions {
 // SetConditions sets the status conditions for the AROControlPlane.
 func (r *AROControlPlane) SetConditions(conditions clusterv1.Conditions) {
 	r.Status.Conditions = conditions
-}
-
-// TODO: mveber - added
-func (r *AROControlPlane) GetResourceStatuses() []infrav1.ResourceStatus {
-	return r.Status.Resources
-}
-
-// TODO: mveber - added
-func (r *AROControlPlane) SetResourceStatuses(statuses []infrav1.ResourceStatus) {
-	r.Status.Resources = statuses
 }
 
 func init() {

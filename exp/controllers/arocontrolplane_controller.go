@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The Kubernetes Authors.
+Copyright 2025 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,30 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package controllers provides a way to reconcile ARO resources.
 package controllers
 
 import (
 	"context"
-	"errors"
+	errorsCore "errors"
 	"fmt"
-	"sigs.k8s.io/cluster-api-provider-azure/controllers"
-	"sigs.k8s.io/cluster-api-provider-azure/pkg/mutators"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
+	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/utils/ptr"
+	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
+	"sigs.k8s.io/cluster-api-provider-azure/azure"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
+	"sigs.k8s.io/cluster-api-provider-azure/controllers"
+	"sigs.k8s.io/cluster-api-provider-azure/util/reconciler"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
-	"sigs.k8s.io/cluster-api/util/secret"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,9 +43,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	control2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
+	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
+)
+
+const (
+	aroControlPlaneKind = "AROControlPlane"
+	// AROControlPlaneFinalizer allows the controller to clean up resources on delete.
+	AROControlPlaneFinalizer = "arocontrolplane.controlplane.cluster.x-k8s.io"
+
+	// AROControlPlaneForceDeleteAnnotation annotation can be set to force the deletion of AROControlPlane bypassing any deletion validations/errors.
+	AROControlPlaneForceDeleteAnnotation = "controlplane.cluster.x-k8s.io/arocontrolplane-force-delete"
+
+	// ExternalAuthProviderLastAppliedAnnotation annotation tracks the last applied external auth configuration to inform if an update is required.
+	ExternalAuthProviderLastAppliedAnnotation = "controlplane.cluster.x-k8s.io/arocontrolplane-last-applied-external-auth-provider"
 )
 
 var errInvalidClusterKind = errors.New("AROControlPlane cannot be used without AROCluster")
@@ -70,23 +79,24 @@ type aroResourceReconciler interface {
 // AROControlPlaneReconciler reconciles a AROControlPlane object.
 type AROControlPlaneReconciler struct {
 	client.Client
-	WatchFilterValue string
-	CredentialCache  AROCredentialCache
-
-	newResourceReconciler func(*control2exp.AROControlPlane, []*unstructured.Unstructured) aroResourceReconciler
+	WatchFilterValue                string
+	CredentialCache                 azure.CredentialCache
+	Timeouts                        reconciler.Timeouts
+	getNewAROControlPlaneReconciler func(scope *scope.AROControlPlaneScope) (*aroControlPlaneService, error)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
 	_, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROControlPlaneReconciler.SetupWithManager",
-		tele.KVP("controller", control2exp.AROControlPlaneKind),
+		tele.KVP("controller", cplane.AROControlPlaneKind),
 	)
 	defer done()
 
-	c, err := ctrl.NewControllerManagedBy(mgr).
+	r.getNewAROControlPlaneReconciler = newAROControlPlaneService
+	_, err := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(options).
-		For(&control2exp.AROControlPlane{}).
+		For(&cplane.AROControlPlane{}).
 		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
 		Watches(&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToAROControlPlane),
@@ -104,23 +114,7 @@ func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ct
 		Owns(&corev1.Secret{}).
 		Build(r)
 	if err != nil {
-		return err
-	}
-
-	externalTracker := &external.ObjectTracker{
-		Cache:           mgr.GetCache(),
-		Controller:      c,
-		Scheme:          mgr.GetScheme(),
-		PredicateLogger: &log,
-	}
-
-	r.newResourceReconciler = func(aroCluster *control2exp.AROControlPlane, resources []*unstructured.Unstructured) aroResourceReconciler {
-		return &ResourceReconciler{
-			Client:    r.Client,
-			resources: resources,
-			owner:     aroCluster,
-			watcher:   externalTracker,
-		}
+		return fmt.Errorf("failed setting up the AROControlPlane controller manager: %w", err)
 	}
 
 	return nil
@@ -130,7 +124,7 @@ func clusterToAROControlPlane(_ context.Context, o client.Object) []ctrl.Request
 	controlPlaneRef := o.(*clusterv1.Cluster).Spec.ControlPlaneRef
 	if controlPlaneRef != nil &&
 		controlPlaneRef.APIVersion == infrav2exp.GroupVersion.Identifier() &&
-		controlPlaneRef.Kind == control2exp.AROControlPlaneKind {
+		controlPlaneRef.Kind == cplane.AROControlPlaneKind {
 		return []ctrl.Request{{NamespacedName: client.ObjectKey{Namespace: controlPlaneRef.Namespace, Name: controlPlaneRef.Name}}}
 	}
 	return nil
@@ -153,19 +147,23 @@ func (r *AROControlPlaneReconciler) aroMachinePoolToAROControlPlane(ctx context.
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/finalizers,verbs=update
 
-// Reconcile reconciles an AROControlPlane.
+// Reconcile will reconcile AROControlPlane resources.
 func (r *AROControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {
+	ctx, cancel := context.WithTimeout(ctx, r.Timeouts.DefaultedLoopTimeout())
+	defer cancel()
+
 	ctx, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROControlPlaneReconciler.Reconcile",
 		tele.KVP("namespace", req.Namespace),
 		tele.KVP("name", req.Name),
-		tele.KVP("kind", control2exp.AROControlPlaneKind),
+		tele.KVP("kind", cplane.AROControlPlaneKind),
 	)
 	defer done()
 
-	log = log.WithValues("namespace", req.Namespace, "azureControlPlane", req.Name)
+	log = log.WithValues("namespace", req.Namespace, "AROControlPlane", req.Name)
 
-	aroControlPlane := &control2exp.AROControlPlane{}
+	// Get the control plane instance
+	aroControlPlane := &cplane.AROControlPlane{}
 	err := r.Get(ctx, req.NamespacedName, aroControlPlane)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -186,29 +184,98 @@ func (r *AROControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	aroControlPlane.Status.Ready = false
 	aroControlPlane.Status.Initialized = false
 
+	// Get the cluster
 	cluster, err := util.GetOwnerCluster(ctx, r.Client, aroControlPlane.ObjectMeta)
 	if err != nil {
+		log.Error(err, "Failed to retrieve owner Cluster from the API Server")
 		return ctrl.Result{}, err
+	}
+
+	if cluster != nil {
+		log = log.WithValues("cluster", cluster.Name)
+	}
+
+	/* TODO: mveber - machine pools
+	// Fetch all the ManagedMachinePools owned by this Cluster.
+	opt1 := client.InNamespace(aroControlPlane.Namespace)
+	opt2 := client.MatchingLabels(map[string]string{
+		clusterv1.ClusterNameLabel: cluster.Name,
+	})
+
+	ammpList := &infrav1.AROMachinePoolList{}
+	if err := r.List(ctx, ammpList, opt1, opt2); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	var pools = make([]scope.ManagedMachinePool, len(ammpList.Items))
+
+	for i, ammp := range ammpList.Items {
+		// Fetch the owner MachinePool.
+		ownerPool, err := capiexputil.GetOwnerMachinePool(ctx, r.Client, ammp.ObjectMeta)
+		if err != nil || ownerPool == nil {
+			return reconcile.Result{}, errors.Wrapf(err, "failed to fetch owner MachinePool for AROMachinePool: %s", ammp.Name)
+		}
+		pools[i] = scope.ManagedMachinePool{
+			InfraMachinePool: &ammpList.Items[i],
+			MachinePool:      ownerPool,
+		}
+	}
+	*/
+
+	// Create the scope.
+	aroScope, err := scope.NewAROControlPlaneScope(ctx, scope.AROControlPlaneScopeParams{
+		Client:          r.Client,
+		Cluster:         cluster,
+		ControlPlane:    aroControlPlane,
+		Timeouts:        r.Timeouts,
+		CredentialCache: r.CredentialCache,
+		// TODO: mveber - what about this variables:
+		SubscriptionID:   "1d3378d3-5a3f-4712-85a1-2485495dfc4b",
+		AzureEnvironment: "",
+	})
+	/* TODO: mveber - from ROSA
+
+	ControllerName: strings.ToLower(aroControlPlaneKind),
+	Endpoints:      r.Endpoints,
+	Logger:         log,
+	NewStsClient:   r.NewStsClient,
+	*/
+
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to create scope: %w", err)
+	}
+
+	// Always close the scope
+	defer func() {
+		if err := aroScope.Close(ctx); err != nil {
+			resultErr = errorsCore.Join(resultErr, err)
+		}
+	}()
+
+	if aroScope.ControlPlane.Status.Version == "" {
+		aroScope.ControlPlane.Status.Version = "1.2"
 	}
 
 	if cluster != nil && cluster.Spec.Paused ||
 		annotations.HasPaused(aroControlPlane) {
-		return r.reconcilePaused(ctx, aroControlPlane)
+		return r.reconcilePaused(ctx, aroScope)
 	}
 
 	if !aroControlPlane.GetDeletionTimestamp().IsZero() {
-		return r.reconcileDelete(ctx, aroControlPlane)
+		// Handle deletion reconciliation loop.
+		return r.reconcileDelete(ctx, aroScope)
 	}
 
-	return r.reconcileNormal(ctx, aroControlPlane, cluster)
+	return r.reconcileNormal(ctx, aroScope, cluster)
 }
 
-func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, aroControlPlane *control2exp.AROControlPlane, cluster *clusterv1.Cluster) (ctrl.Result, error) {
+func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, scope *scope.AROControlPlaneScope, cluster *clusterv1.Cluster) (ctrl.Result, error) {
 	ctx, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROControlPlaneReconciler.reconcileNormal",
 	)
 	defer done()
-	log.V(4).Info("reconciling normally")
+
+	log.Info("Reconciling AROControlPlane")
 
 	if cluster == nil {
 		log.V(4).Info("Cluster Controller has not yet set OwnerRef")
@@ -220,7 +287,10 @@ func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, aroCont
 		return ctrl.Result{}, reconcile.TerminalError(errInvalidClusterKind)
 	}
 
-	needsPatch := controllerutil.AddFinalizer(aroControlPlane, control2exp.AROControlPlaneFinalizer)
+	aroControlPlane := scope.ControlPlane
+	// Register our finalizer immediately to avoid orphaning Azure resources on delete
+	needsPatch := controllerutil.AddFinalizer(aroControlPlane, cplane.AROControlPlaneFinalizer)
+	// Register the block-move annotation immediately to avoid moving un-paused ASO resources
 	needsPatch = controllers.AddBlockMoveAnnotation(aroControlPlane) || needsPatch
 	if needsPatch {
 		return ctrl.Result{Requeue: true}, nil
@@ -230,23 +300,39 @@ func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, aroCont
 		return ctrl.Result{}, reconcile.TerminalError(ErrNoAROClusterDefined)
 	}
 
-	/*
-		resourceReconciler := r.newResourceReconciler(aroControlPlane, resources)
-		err = resourceReconciler.Reconcile(ctx)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to reconcile resources: %w", err)
-		}
-		for _, status := range aroControlPlane.Status.Resources {
-			if !status.Ready {
-				return ctrl.Result{}, nil
+	svc, err := r.getNewAROControlPlaneReconciler(scope)
+	if err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "failed to create aroControlPlane service")
+	}
+	if err := svc.Reconcile(ctx); err != nil {
+		// Handle transient and terminal errors
+		log := log.WithValues("name", scope.ControlPlane.Name, "namespace", scope.ControlPlane.Namespace)
+		var reconcileError azure.ReconcileError
+		if errors.As(err, &reconcileError) {
+			if reconcileError.IsTerminal() {
+				log.Error(err, "failed to reconcile AROControlPlane")
+				return reconcile.Result{}, nil
 			}
+
+			if reconcileError.IsTransient() {
+				log.V(4).Info("requeuing due to transient failure", "error", err)
+				return reconcile.Result{RequeueAfter: reconcileError.RequeueAfter()}, nil
+			}
+
+			return reconcile.Result{}, errors.Wrap(err, "failed to reconcile AROControlPlane")
 		}
-	*/
+
+		return reconcile.Result{}, errors.Wrapf(err, "error creating AROControlPlane %s/%s", scope.ControlPlane.Namespace, scope.ControlPlane.Name)
+	}
+
+	// No errors, so mark us ready so the Cluster API Cluster Controller can pull it
+	scope.ControlPlane.Status.Ready = true
+	scope.ControlPlane.Status.Initialized = true
 
 	aroCluster := &infrav2exp.AROCluster{}
-	err := r.Get(ctx, client.ObjectKey{Namespace: aroControlPlane.Namespace, Name: aroControlPlane.Spec.AroClusterName}, aroCluster)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("error getting AroCluster: %w", err)
+	errGet := r.Get(ctx, client.ObjectKey{Namespace: aroControlPlane.Namespace, Name: aroControlPlane.Spec.AroClusterName}, aroCluster)
+	if errGet != nil {
+		return ctrl.Result{}, fmt.Errorf("error getting AroCluster: %w", errGet)
 	}
 
 	aroControlPlane.Status.ControlPlaneEndpoint = getControlPlaneEndpoint(aroCluster)
@@ -275,7 +361,9 @@ func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, aroCont
 	return result, nil
 }
 
-func (r *AROControlPlaneReconciler) reconcileKubeconfig(ctx context.Context, aroControlPlane *control2exp.AROControlPlane, cluster *clusterv1.Cluster, aroCluster *infrav2exp.AROCluster) (*time.Duration, error) {
+/*
+TODO: mveber - remove howto reconcile kubeconfig
+func (r *AROControlPlaneReconciler) reconcileKubeconfig(ctx context.Context, aroControlPlane *cplane.AROControlPlane, cluster *clusterv1.Cluster, aroCluster *infrav2exp.AROCluster) (*time.Duration, error) {
 	ctx, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROControlPlaneReconciler.reconcileKubeconfig",
 	)
@@ -344,7 +432,7 @@ func (r *AROControlPlaneReconciler) reconcileKubeconfig(ctx context.Context, aro
 			Name:      secret.Name(cluster.Name, secret.Kubeconfig),
 			Namespace: cluster.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(aroControlPlane, infrav2exp.GroupVersion.WithKind(control2exp.AROControlPlaneKind)),
+				*metav1.NewControllerRef(aroControlPlane, infrav2exp.GroupVersion.WithKind(cplane.AROControlPlaneKind)),
 			},
 			Labels: map[string]string{clusterv1.ClusterNameLabel: cluster.Name},
 		},
@@ -359,49 +447,63 @@ func (r *AROControlPlaneReconciler) reconcileKubeconfig(ctx context.Context, aro
 	}
 	return tokenExpiresIn, nil
 }
+*/
 
-func (r *AROControlPlaneReconciler) reconcilePaused(ctx context.Context, aroControlPlane *control2exp.AROControlPlane) (ctrl.Result, error) {
+func (r *AROControlPlaneReconciler) reconcilePaused(ctx context.Context, scope *scope.AROControlPlaneScope) (ctrl.Result, error) {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROControlPlaneReconciler.reconcilePaused")
 	defer done()
-	log.V(4).Info("reconciling pause")
 
-	resources, err := mutators.ToUnstructured(ctx, aroControlPlane.Spec.Resources)
+	log.Info("Reconciling AROControlPlane pause")
+
+	svc, err := r.getNewAROControlPlaneReconciler(scope)
 	if err != nil {
-		return ctrl.Result{}, err
+		return reconcile.Result{}, errors.Wrap(err, "failed to create aroControlPlane service")
 	}
-	resourceReconciler := r.newResourceReconciler(aroControlPlane, resources)
-	err = resourceReconciler.Pause(ctx)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to pause resources: %w", err)
+	if err := svc.Pause(ctx); err != nil {
+		return reconcile.Result{}, errors.Wrap(err, "failed to pause control plane services")
 	}
+	controllers.RemoveBlockMoveAnnotation(scope.ControlPlane)
 
-	controllers.RemoveBlockMoveAnnotation(aroControlPlane)
-
-	return ctrl.Result{}, nil
+	return reconcile.Result{}, nil
 }
 
-func (r *AROControlPlaneReconciler) reconcileDelete(ctx context.Context, aroControlPlane *control2exp.AROControlPlane) (ctrl.Result, error) {
+func (r *AROControlPlaneReconciler) reconcileDelete(ctx context.Context, scope *scope.AROControlPlaneScope) (ctrl.Result, error) {
 	ctx, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROControlPlaneReconciler.reconcileDelete",
 	)
 	defer done()
-	log.V(4).Info("reconciling delete")
 
-	resources, err := mutators.ToUnstructured(ctx, aroControlPlane.Spec.Resources)
+	log.Info("Reconciling AROControlPlane delete")
+
+	svc, err := r.getNewAROControlPlaneReconciler(scope)
 	if err != nil {
-		return ctrl.Result{}, err
+		return reconcile.Result{}, errors.Wrap(err, "failed to create aroControlPlane service")
 	}
-	resourceReconciler := r.newResourceReconciler(aroControlPlane, resources)
-	err = resourceReconciler.Delete(ctx)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to reconcile resources: %w", err)
-	}
-	if len(aroControlPlane.Status.Resources) > 0 {
-		return ctrl.Result{}, nil
+	if err := svc.Delete(ctx); err != nil {
+		// Handle transient errors
+		var reconcileError azure.ReconcileError
+		if errors.As(err, &reconcileError) && reconcileError.IsTransient() {
+			if azure.IsOperationNotDoneError(reconcileError) {
+				log.V(2).Info(fmt.Sprintf("AROControlPlane delete not done: %s", reconcileError.Error()))
+			} else {
+				log.V(2).Info("transient failure to delete AROControlPlane, retrying")
+			}
+			return reconcile.Result{RequeueAfter: reconcileError.RequeueAfter()}, nil
+		}
+		return reconcile.Result{}, errors.Wrapf(err, "error deleting AROControlPlane %s/%s", scope.ControlPlane.Namespace, scope.ControlPlane.Name)
 	}
 
-	controllerutil.RemoveFinalizer(aroControlPlane, control2exp.AROControlPlaneFinalizer)
-	return ctrl.Result{}, nil
+	// Cluster is deleted so remove the finalizer.
+	controllerutil.RemoveFinalizer(scope.ControlPlane, cplane.AROControlPlaneFinalizer)
+
+	if scope.ControlPlane.Spec.IdentityRef != nil {
+		err := controllers.RemoveClusterIdentityFinalizer(ctx, r.Client, scope.ControlPlane, scope.ControlPlane.Spec.IdentityRef, infrav1.ManagedClusterFinalizer)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
+	return reconcile.Result{}, nil
 }
 
 func getControlPlaneEndpoint(aroCluster *infrav2exp.AROCluster) clusterv1.APIEndpoint {

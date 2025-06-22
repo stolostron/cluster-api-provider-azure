@@ -646,6 +646,8 @@ func registerControllers(ctx context.Context, mgr manager.Manager) {
 		if err := (&infrav1controllersexp.AROControlPlaneReconciler{
 			Client:           mgr.GetClient(),
 			WatchFilterValue: watchFilterValue,
+			CredentialCache:  credCache,
+			Timeouts:         timeouts,
 		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: azureClusterConcurrency}); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AROControlPlane")
 			os.Exit(1)

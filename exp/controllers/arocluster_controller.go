@@ -42,8 +42,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
-	cplanev2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
-	infrav2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
+	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
+	infra "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
@@ -59,20 +59,20 @@ type AROClusterReconciler struct {
 func (r *AROClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
 	ctx, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROClusterReconciler.SetupWithManager",
-		tele.KVP("controller", infrav2exp.AROClusterKind),
+		tele.KVP("controller", infra.AROClusterKind),
 	)
 	defer done()
 
 	_, err := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(options).
-		For(&infrav2exp.AROCluster{}).
+		For(&infra.AROCluster{}).
 		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
 		WithEventFilter(predicates.ResourceIsNotExternallyManaged(mgr.GetScheme(), log)).
 		// Watch clusters for pause/unpause notifications
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(
-				util.ClusterToInfrastructureMapFunc(ctx, infrav2exp.GroupVersion.WithKind(infrav2exp.AROClusterKind), mgr.GetClient(), &infrav2exp.AROCluster{}),
+				util.ClusterToInfrastructureMapFunc(ctx, infra.GroupVersion.WithKind(infra.AROClusterKind), mgr.GetClient(), &infra.AROCluster{}),
 			),
 			builder.WithPredicates(
 				predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue),
@@ -80,18 +80,18 @@ func (r *AROClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 			),
 		).
 		Watches(
-			&cplanev2exp.AROControlPlane{},
+			&cplane.AROControlPlane{},
 			handler.EnqueueRequestsFromMapFunc(aroControlPlaneToAroClusterMap(r.Client, log)),
 			builder.WithPredicates(
 				predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue),
 				predicate.Funcs{
 					CreateFunc: func(ev event.CreateEvent) bool {
-						controlPlane := ev.Object.(*cplanev2exp.AROControlPlane)
+						controlPlane := ev.Object.(*cplane.AROControlPlane)
 						return !controlPlane.Status.ControlPlaneEndpoint.IsZero()
 					},
 					UpdateFunc: func(ev event.UpdateEvent) bool {
-						oldControlPlane := ev.ObjectOld.(*cplanev2exp.AROControlPlane)
-						newControlPlane := ev.ObjectNew.(*cplanev2exp.AROControlPlane)
+						oldControlPlane := ev.ObjectOld.(*cplane.AROControlPlane)
+						newControlPlane := ev.ObjectNew.(*cplane.AROControlPlane)
 						return oldControlPlane.Status.ControlPlaneEndpoint !=
 							newControlPlane.Status.ControlPlaneEndpoint
 					},
@@ -108,7 +108,7 @@ func (r *AROClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 
 func aroControlPlaneToAroClusterMap(c client.Client, log logr.Logger) handler.MapFunc {
 	return func(ctx context.Context, o client.Object) []reconcile.Request {
-		aroControlPlane, ok := o.(*cplanev2exp.AROControlPlane)
+		aroControlPlane, ok := o.(*cplane.AROControlPlane)
 		if !ok {
 			log.Error(fmt.Errorf("expected a AROControlPlane, got %T instead", o), "failed to map AROControlPlane")
 			return nil
@@ -139,7 +139,7 @@ func aroControlPlaneToAroClusterMap(c client.Client, log logr.Logger) handler.Ma
 		aroClusterRef := cluster.Spec.InfrastructureRef
 		if aroClusterRef == nil ||
 			!matchesAROAPIGroup(aroClusterRef.APIVersion) ||
-			aroClusterRef.Kind != infrav2exp.AROClusterKind {
+			aroClusterRef.Kind != infra.AROClusterKind {
 			return nil
 		}
 
@@ -156,7 +156,7 @@ func aroControlPlaneToAroClusterMap(c client.Client, log logr.Logger) handler.Ma
 
 func matchesAROAPIGroup(apiVersion string) bool {
 	gv, _ := schema.ParseGroupVersion(apiVersion)
-	return gv.Group == infrav2exp.GroupVersion.Group
+	return gv.Group == infra.GroupVersion.Group
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=aroclusters,verbs=get;list;watch;create;update;patch;delete
@@ -169,14 +169,14 @@ func (r *AROClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		"controllers.AROClusterReconciler.Reconcile",
 		tele.KVP("namespace", req.Namespace),
 		tele.KVP("name", req.Name),
-		tele.KVP("kind", infrav2exp.AROClusterKind),
+		tele.KVP("kind", infra.AROClusterKind),
 	)
 	defer done()
 
 	log = log.WithValues("namespace", req.Namespace, "AROCluster", req.Name)
 
 	// Fetch the AROCluster instance
-	aroCluster := &infrav2exp.AROCluster{}
+	aroCluster := &infra.AROCluster{}
 	err := r.Get(ctx, req.NamespacedName, aroCluster)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -216,10 +216,10 @@ func (r *AROClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 func matchesAROControlPlaneAPIGroup(apiVersion string) bool {
 	gv, _ := schema.ParseGroupVersion(apiVersion)
-	return gv.Group == cplanev2exp.GroupVersion.Group
+	return gv.Group == cplane.GroupVersion.Group
 }
 
-func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *infrav2exp.AROCluster, cluster *clusterv1.Cluster) (ctrl.Result, error) {
+func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *infra.AROCluster, cluster *clusterv1.Cluster) (ctrl.Result, error) {
 	ctx, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROClusterReconciler.reconcileNormal",
 	)
@@ -232,17 +232,17 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 	}
 	if cluster.Spec.ControlPlaneRef == nil ||
 		!matchesAROControlPlaneAPIGroup(cluster.Spec.ControlPlaneRef.APIVersion) ||
-		cluster.Spec.ControlPlaneRef.Kind != cplanev2exp.AROControlPlaneKind {
+		cluster.Spec.ControlPlaneRef.Kind != cplane.AROControlPlaneKind {
 		return ctrl.Result{}, reconcile.TerminalError(errInvalidControlPlaneKind)
 	}
 
-	needsPatch := controllerutil.AddFinalizer(aroCluster, infrav2exp.AROClusterFinalizer)
+	needsPatch := controllerutil.AddFinalizer(aroCluster, infra.AROClusterFinalizer)
 	needsPatch = controllers.AddBlockMoveAnnotation(aroCluster) || needsPatch
 	if needsPatch {
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	aroControlPlane := &cplanev2exp.AROControlPlane{
+	aroControlPlane := &cplane.AROControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: cluster.Spec.ControlPlaneRef.Namespace,
 			Name:      cluster.Spec.ControlPlaneRef.Name,
@@ -257,14 +257,14 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 	aroCluster.Spec.ControlPlaneEndpoint = aroControlPlane.Status.ControlPlaneEndpoint // TODO: mveber - rosa has aroControlPlane.Spec :(
 
 	// TODO: mveber - rosa sets true unconditionaly
-	aroCluster.Status.Ready = !aroCluster.Spec.ControlPlaneEndpoint.IsZero()
+	aroCluster.Status.Ready = true // !aroCluster.Spec.ControlPlaneEndpoint.IsZero()
 
 	log.Info("Successfully reconciled AROCluster")
 
 	return ctrl.Result{}, nil
 }
 
-func (r *AROClusterReconciler) reconcilePaused(ctx context.Context, aroCluster *infrav2exp.AROCluster) (ctrl.Result, error) {
+func (r *AROClusterReconciler) reconcilePaused(ctx context.Context, aroCluster *infra.AROCluster) (ctrl.Result, error) {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROClusterReconciler.reconcilePaused")
 	defer done()
 	log.V(4).Info("reconciling pause")
@@ -274,13 +274,13 @@ func (r *AROClusterReconciler) reconcilePaused(ctx context.Context, aroCluster *
 	return ctrl.Result{}, nil
 }
 
-func (r *AROClusterReconciler) reconcileDelete(ctx context.Context, aroCluster *infrav2exp.AROCluster) (ctrl.Result, error) {
+func (r *AROClusterReconciler) reconcileDelete(ctx context.Context, aroCluster *infra.AROCluster) (ctrl.Result, error) {
 	ctx, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROClusterReconciler.reconcileDelete",
 	)
 	defer done()
 	log.V(4).Info("reconciling delete")
 
-	controllerutil.RemoveFinalizer(aroCluster, infrav2exp.AROClusterFinalizer)
+	controllerutil.RemoveFinalizer(aroCluster, infra.AROClusterFinalizer)
 	return ctrl.Result{}, nil
 }

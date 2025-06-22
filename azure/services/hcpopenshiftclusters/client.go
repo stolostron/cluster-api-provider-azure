@@ -18,6 +18,9 @@ package hcpopenshiftclusters
 
 import (
 	"context"
+	"fmt"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"time"
 
@@ -29,19 +32,54 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
+// Client wraps go-sdk.
+type Client interface {
+	Get(context.Context, azure.ResourceSpecGetter) (interface{}, error)
+	List(context.Context, string) ([]arohcp.HcpOpenShiftCluster, error)
+
+	CreateOrUpdateAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string, parameters interface{}) (result interface{}, poller *runtime.Poller[arohcp.HcpOpenShiftClustersClientCreateOrUpdateResponse], err error)
+	DeleteAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string) (poller *runtime.Poller[arohcp.HcpOpenShiftClustersClientDeleteResponse], err error)
+}
+
 // azureClient contains the Azure go-sdk Client.
 type azureClient struct {
 	hcpopenshiftcluster *arohcp.HcpOpenShiftClustersClient
 	apiCallTimeout      time.Duration
 }
 
+var _ Client = &azureClient{}
+
 // newClient creates a new AROCluster client from an authorizer.
 func newClient(auth azure.Authorizer, apiCallTimeout time.Duration) (*azureClient, error) {
-	opts, err := azure.ARMClientOptions(auth.CloudEnvironment())
+	isDevevel := true
+	var extraPolicies []policy.Policy
+	if isDevevel {
+		now := time.Now()
+		extraPolicies = append(extraPolicies, azure.CustomPutPatchHeaderPolicy{
+			Headers: map[string]string{
+				"X-Ms-Arm-Resource-System-Data": fmt.Sprintf(`{"createdBy": "mveber", "createdByType": "User", "createdAt": "%s"}`,
+					now.Format(time.RFC3339),
+				),
+				"X-Ms-Identity-Url": "https://dummyhost.identity.azure.net",
+			},
+		})
+	}
+
+	opts, err := azure.ARMClientOptions(auth.CloudEnvironment(), extraPolicies...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hcpopenshiftclusters client options")
 	}
-	factory, err := arohcp.NewClientFactory(auth.SubscriptionID(), auth.Token(), opts)
+	cred := auth.Token()
+	if isDevevel {
+		opts.InsecureAllowCredentialWithHTTP = true
+		opts.Cloud.Services = map[cloud.ServiceName]cloud.ServiceConfiguration{
+			"resourceManager": cloud.ServiceConfiguration{
+				Audience: opts.Cloud.Services["resourceManager"].Audience,
+				Endpoint: "http://192.168.122.1:8443/",
+			},
+		}
+	}
+	factory, err := arohcp.NewClientFactory(auth.SubscriptionID(), cred, opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hcpopenshiftclusters client factory")
 	}

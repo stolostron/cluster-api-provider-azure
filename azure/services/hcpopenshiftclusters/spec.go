@@ -22,51 +22,24 @@ import (
 	arohcp "github.com/marek-veber/ARO-HCP/external/api/v20240610preview/generated"
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
+	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 )
 
-// HcpOpenShiftClustersSpec defines the specification for a disk.
+// HcpOpenShiftClustersSpec defines the specification for a HcpOpenShiftCluster.
 type HcpOpenShiftClustersSpec struct {
 	Name                   string
 	Location               string
 	ResourceGroup          string
-	ManagedIdentities      ManagedIdentities
+	ManagedIdentities      *cplane.ManagedIdentities
 	ClusterName            string
 	AdditionalTags         map[string]string
 	NetworkSecurityGroupID string
 	Subnet                 string
 	OutboundType           string
-	Network                NetworkSpec
+	Network                *cplane.NetworkSpec
 	Version                string
-	ChannelGroup           string
+	ChannelGroup           cplane.ChannelGroupType
 	Visibility             string
-}
-type ManagedIdentities struct {
-	ControlPlaneOperators  *ControlPlaneOperators
-	DataPlaneOperators     *DataPlaneOperators
-	ServiceManagedIdentity string
-}
-type ControlPlaneOperators struct {
-	ControlPlaneManagedIdentities           string
-	ClusterApiAzureManagedIdentities        string
-	CloudControllerManagerManagedIdentities string
-	IngressManagedIdentities                string
-	DiskCsiDriverManagedIdentities          string
-	FileCsiDriverManagedIdentities          string
-	ImageRegistryManagedIdentities          string
-	CloudNetworkConfigManagedIdentities     string
-	KmsManagedIdentities                    string
-}
-type DataPlaneOperators struct {
-	DiskCsiDriverManagedIdentities string
-	FileCsiDriverManagedIdentities string
-	ImageRegistryManagedIdentities string
-}
-type NetworkSpec struct {
-	MachineCIDR string
-	PodCIDR     string
-	ServiceCIDR string
-	HostPrefix  int32
-	NetworkType string
 }
 
 // ResourceName returns the name of the HcpOpenShiftCluster.
@@ -90,14 +63,15 @@ func (s *HcpOpenShiftClustersSpec) getManagedIdentities() (*arohcp.UserAssignedI
 	userAssignedIdentities := &arohcp.UserAssignedIdentitiesProfile{
 		ControlPlaneOperators: map[string]*string{
 			"control-plane":            &s.ManagedIdentities.ControlPlaneOperators.ControlPlaneManagedIdentities,
-			"cluster-api-azure":        &s.ManagedIdentities.ControlPlaneOperators.ClusterApiAzureManagedIdentities,
+			"cluster-api-azure":        &s.ManagedIdentities.ControlPlaneOperators.ClusterAPIAzureManagedIdentities,
 			"cloud-controller-manager": &s.ManagedIdentities.ControlPlaneOperators.CloudControllerManagerManagedIdentities,
 			"ingress":                  &s.ManagedIdentities.ControlPlaneOperators.IngressManagedIdentities,
 			"disk-csi-driver":          &s.ManagedIdentities.ControlPlaneOperators.DiskCsiDriverManagedIdentities,
 			"file-csi-driver":          &s.ManagedIdentities.ControlPlaneOperators.FileCsiDriverManagedIdentities,
 			"image-registry":           &s.ManagedIdentities.ControlPlaneOperators.ImageRegistryManagedIdentities,
 			"cloud-network-config":     &s.ManagedIdentities.ControlPlaneOperators.CloudNetworkConfigManagedIdentities,
-			"kms":                      &s.ManagedIdentities.ControlPlaneOperators.KmsManagedIdentities,
+                        // TODO: mveber - update mohamed's proposal - kms should be removed
+			// "kms":                      &s.ManagedIdentities.ControlPlaneOperators.KmsManagedIdentities,
 		},
 		DataPlaneOperators: map[string]*string{
 			"disk-csi-driver": &s.ManagedIdentities.DataPlaneOperators.DiskCsiDriverManagedIdentities,
@@ -114,7 +88,7 @@ func (s *HcpOpenShiftClustersSpec) getManagedIdentities() (*arohcp.UserAssignedI
 	}
 	midsMap := []map[string]*string{
 		userAssignedIdentities.ControlPlaneOperators,
-		userAssignedIdentities.DataPlaneOperators,
+		// TODO: mveber - why it cannot be here		userAssignedIdentities.DataPlaneOperators,
 		{"": userAssignedIdentities.ServiceManagedIdentity},
 	}
 	for _, midMap := range midsMap {
@@ -226,14 +200,14 @@ func (s *HcpOpenShiftClustersSpec) Parameters(_ context.Context, existing interf
 				// BaseDomain:       nil,
 			},
 			Network: &arohcp.NetworkProfile{
-				HostPrefix:  &s.Network.HostPrefix,
+				HostPrefix:  ptr.To(int32(s.Network.HostPrefix)),
 				MachineCidr: &s.Network.MachineCIDR,
 				NetworkType: networkType,
 				PodCidr:     &s.Network.PodCIDR,
 				ServiceCidr: &s.Network.ServiceCIDR,
 			},
 			Version: &arohcp.VersionProfile{
-				ChannelGroup:      &s.ChannelGroup,
+				ChannelGroup:      ptr.To(string(s.ChannelGroup)),
 				ID:                &s.Version,
 				AvailableUpgrades: nil,
 			},

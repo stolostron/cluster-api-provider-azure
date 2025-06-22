@@ -73,10 +73,84 @@ spec:
                 - host
                 - port
                 type: object
+              secrets:
+                description: 'Secrets: configures where to place Azure generated secrets.'
+                properties:
+                  adminCredentials:
+                    description: |-
+                      AdminCredentials: indicates where the AdminCredentials secret should be placed. If omitted, the secret will not be
+                      retrieved from Azure.
+                    properties:
+                      key:
+                        description: Key is the key in the Kubernetes secret being
+                          referenced.
+                        type: string
+                      name:
+                        description: |-
+                          Name is the name of the Kubernetes secret to write to.
+                          The secret will be created in the same namespace as the resource.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  userCredentials:
+                    description: |-
+                      UserCredentials: indicates where the UserCredentials secret should be placed. If omitted, the secret will not be
+                      retrieved from Azure.
+                    properties:
+                      key:
+                        description: Key is the key in the Kubernetes secret being
+                          referenced.
+                        type: string
+                      name:
+                        description: |-
+                          Name is the name of the Kubernetes secret to write to.
+                          The secret will be created in the same namespace as the resource.
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                type: object
             type: object
           status:
             description: AROClusterStatus defines the observed state of AROCluster.
             properties:
+              aadProfile:
+                description: 'AadProfile: The Azure Active Directory configuration.'
+                properties:
+                  adminGroupObjectIDs:
+                    description: 'AdminGroupObjectIDs: The list of AAD group object
+                      IDs that will have admin role of the cluster.'
+                    items:
+                      type: string
+                    type: array
+                  clientAppID:
+                    description: 'ClientAppID: (DEPRECATED) The client AAD application
+                      ID. Learn more at https://aka.ms/aks/aad-legacy.'
+                    type: string
+                  enableAzureRBAC:
+                    description: 'EnableAzureRBAC: Whether to enable Azure RBAC for
+                      Kubernetes authorization.'
+                    type: boolean
+                  managed:
+                    description: 'Managed: Whether to enable managed AAD.'
+                    type: boolean
+                  serverAppID:
+                    description: 'ServerAppID: (DEPRECATED) The server AAD application
+                      ID. Learn more at https://aka.ms/aks/aad-legacy.'
+                    type: string
+                  serverAppSecret:
+                    description: 'ServerAppSecret: (DEPRECATED) The server AAD application
+                      secret. Learn more at https://aka.ms/aks/aad-legacy.'
+                    type: string
+                  tenantID:
+                    description: |-
+                      TenantID: The AAD tenant ID to use for authentication. If not specified, will use the tenant of the deployment
+                      subscription.
+                    type: string
+                type: object
               conditions:
                 description: Conditions define the current service state of the AROCluster.
                 items:
@@ -129,6 +203,14 @@ spec:
                   - type
                   type: object
                 type: array
+              currentKubernetesVersion:
+                type: string
+              disableLocalAccounts:
+                description: |-
+                  DisableLocalAccounts: If set to true, getting static credentials will be disabled for this cluster. This must only be
+                  used on Managed Clusters that are AAD enabled. For more details see [disable local
+                  accounts](https://docs.microsoft.com/azure/aks/managed-aad#disable-local-accounts-preview).
+                type: boolean
               failureDomains:
                 additionalProperties:
                   description: |-
@@ -149,6 +231,49 @@ spec:
                 description: FailureDomains specifies a list fo available availability
                   zones that can be used
                 type: object
+              fqdn:
+                description: 'Fqdn: The FQDN of the master pool.'
+                type: string
+              longRunningOperationStates:
+                description: |-
+                  LongRunningOperationStates saves the state for ARO long-running operations so they can be continued on the
+                  next reconciliation loop.
+                items:
+                  description: Future contains the data needed for an Azure long-running
+                    operation to continue across reconcile loops.
+                  properties:
+                    data:
+                      description: Data is the base64 url encoded json Azure AutoRest
+                        Future.
+                      type: string
+                    name:
+                      description: |-
+                        Name is the name of the Azure resource.
+                        Together with the service name, this forms the unique identifier for the future.
+                      type: string
+                    resourceGroup:
+                      description: ResourceGroup is the Azure resource group for the
+                        resource.
+                      type: string
+                    serviceName:
+                      description: |-
+                        ServiceName is the name of the Azure service.
+                        Together with the name of the resource, this forms the unique identifier for the future.
+                      type: string
+                    type:
+                      description: Type describes the type of future, such as update,
+                        create, delete, etc.
+                      type: string
+                  required:
+                  - data
+                  - name
+                  - serviceName
+                  - type
+                  type: object
+                type: array
+              privateFQDN:
+                description: 'PrivateFQDN: The FQDN of private cluster.'
+                type: string
               ready:
                 description: Ready is when the AROControlPlane has a API server URL.
                 type: boolean
