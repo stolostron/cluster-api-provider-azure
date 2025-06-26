@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hcpopenshiftclusters
+package hcpopenshiftclustercredentials
 
 import (
 	"context"
@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
+	"time"
 
 	arohcp "github.com/marek-veber/ARO-HCP/external/api/v20240610preview/generated"
 
@@ -31,22 +32,20 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
-const serviceName = "hcpopenshiftclusters"
+const serviceName = "hcpopenshiftclustercredentials"
 
 type (
-	// HcpOpenShiftClusterScope defines the scope interface for a hcpOpenShiftcluster service.
-	HcpOpenShiftClusterScope interface {
+	// HcpOpenShiftClusterCredentialScope defines the scope interface for a hcpOpenShiftcluster service.
+	HcpOpenShiftClusterCredentialScope interface {
 		azure.Authorizer
 		azure.AsyncStatusUpdater
-		HcpOpenShiftClusterSpecs(context.Context) azure.ResourceSpecGetter
-		SetProvisioningState(state *arohcp.ProvisioningState)
-		SetStatusVersion(version *arohcp.VersionProfile)
-		SetApiUrl(url *string, visibility *arohcp.Visibility)
+		HcpOpenShiftClusterCredentialsSpecs(context.Context) azure.ResourceSpecGetter
+		SetKubeconfig(kubeconfig *string, timestamp *time.Time)
 	}
 
 	// Service provides operations on Azure resources.
 	Service struct {
-		Scope HcpOpenShiftClusterScope
+		Scope HcpOpenShiftClusterCredentialScope
 		Client
 		resourceSKUCache *resourceskus.Cache
 		async.Reconciler
@@ -54,15 +53,15 @@ type (
 )
 
 // New creates a new service.
-func New(scope HcpOpenShiftClusterScope, skuCache *resourceskus.Cache) (*Service, error) {
+func New(scope HcpOpenShiftClusterCredentialScope, skuCache *resourceskus.Cache) (*Service, error) {
 	client, err := newClient(scope, scope.DefaultedAzureCallTimeout())
 	if err != nil {
 		return nil, err
 	}
 	return &Service{
 		Scope: scope,
-		Reconciler: async.New[arohcp.HcpOpenShiftClustersClientCreateOrUpdateResponse,
-			arohcp.HcpOpenShiftClustersClientDeleteResponse](scope, client, client),
+		Reconciler: async.New[arohcp.HcpOpenShiftClustersClientRequestAdminCredentialResponse,
+			arohcp.HcpOpenShiftClustersClientRevokeCredentialsResponse](scope, client, client),
 		Client:           client,
 		resourceSKUCache: skuCache,
 	}, nil
@@ -87,35 +86,26 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		return err
 	}
 
-	spec := s.Scope.HcpOpenShiftClusterSpecs(ctx)
-	hcpOpenShiftClusterSpecs, ok := spec.(*HcpOpenShiftClustersSpec)
+	spec := s.Scope.HcpOpenShiftClusterCredentialsSpecs(ctx)
+	hcpOpenShiftClusterCredentialsSpecs, ok := spec.(*HcpOpenShiftClusterCredentialsSpec)
 	if !ok {
-		return errors.Errorf("%T is not of type HcpOpenShiftClusterSpecs", spec)
+		return errors.Errorf("%T is not of type HcpOpenShiftClusterCredentialsSpecs", spec)
 	}
 
-	result, err := s.Client.Get(ctx, spec)
-	if err == nil {
-		//TODO: mveber - remove// We can only get the existing instances if the hcpOpenShiftCluster already exists
-		//                     hcpOpenShiftClusterSpecs.hcpOpenShiftClusterInstances, err = s.Client.ListInstances(ctx, spec.ResourceGroupName(), spec.ResourceName())
-		//                     if err != nil {
-		//                     	err = errors.Wrapf(err, "failed to get existing hcpOpenShiftCluster instances")
-		//                     	s.Scope.UpdatePutStatus(infrav1.BootstrapSucceededCondition, serviceName, err)
-		//                     	return err
-		//                     }
-		if result != nil {
-			if err := s.updateScopeState(ctx, result, hcpOpenShiftClusterSpecs); err != nil {
-				return err
-			}
-		}
-	} else if !azure.ResourceNotFound(err) {
-		return errors.Wrapf(err, "failed to get existing hcpOpenShiftCluster")
+	if hcpOpenShiftClusterCredentialsSpecs.APIURI == "" {
+		return errors.Errorf("ARO ContrlolPlane not yet provisioned (Spec.APIURL is nil)")
 	}
 
-	result, err = s.CreateOrUpdateResource(ctx, hcpOpenShiftClusterSpecs, serviceName)
+	// is ready
+	if hcpOpenShiftClusterCredentialsSpecs.HasValidKubeconfig {
+		return nil
+	}
+
+	result, err := s.CreateOrUpdateResource(ctx, hcpOpenShiftClusterCredentialsSpecs, serviceName)
 	s.Scope.UpdatePutStatus(infrav1.BootstrapSucceededCondition, serviceName, err)
 
 	if err == nil && result != nil {
-		if err := s.updateScopeState(ctx, result, hcpOpenShiftClusterSpecs); err != nil {
+		if err := s.updateScopeState(ctx, result, hcpOpenShiftClusterCredentialsSpecs); err != nil {
 			return err
 		}
 	}
@@ -127,29 +117,13 @@ func (s *Service) Reconcile(ctx context.Context) error {
 //
 // Code later in the reconciler uses scope's hcpOpenShiftCluster state for determining HcpOpenShiftCluster status and whether to create/delete
 // AzureMachinePoolMachines.
-func (s *Service) updateScopeState(ctx context.Context, result interface{}, hcpOpenShiftClusterSpecs *HcpOpenShiftClustersSpec) error {
-	hcpOpenShiftCluster, ok := result.(arohcp.HcpOpenShiftCluster)
+func (s *Service) updateScopeState(ctx context.Context, result interface{}, hcpOpenShiftClusterSpecs *HcpOpenShiftClusterCredentialsSpec) error {
+	hcpOpenShiftClusterAdminCredential, ok := result.(arohcp.HcpOpenShiftClusterAdminCredential)
 	if !ok {
 		return errors.Errorf("%T is not an arohcp.HcpOpenShiftCluster", result)
 	}
-	s.Scope.SetProvisioningState(hcpOpenShiftCluster.Properties.ProvisioningState)
-	s.Scope.SetStatusVersion(hcpOpenShiftCluster.Properties.Version)
-	s.Scope.SetApiUrl(hcpOpenShiftCluster.Properties.API.URL, hcpOpenShiftCluster.Properties.API.Visibility)
+	s.Scope.SetKubeconfig(hcpOpenShiftClusterAdminCredential.Kubeconfig, hcpOpenShiftClusterAdminCredential.ExpirationTimestamp)
 
-	/* TODO: mveber - remove
-	fetchedhcpOpenShiftCluster := converters.SDKTohcpOpenShiftCluster(vmss, hcpOpenShiftClusterSpecs.hcpOpenShiftClusterInstances)
-	if err := s.Scope.ReconcileReplicas(ctx, &fetchedhcpOpenShiftCluster); err != nil {
-		return errors.Wrap(err, "unable to reconcile hcpOpenShiftCluster replicas")
-	}
-
-	// Transform the hcpOpenShiftCluster resource representation to conform to the cloud-provider-azure representation
-	providerID, err := azprovider.ConvertResourceGroupNameToLower(azureutil.ProviderIDPrefix + fetchedhcpOpenShiftCluster.ID)
-	if err != nil {
-		return errors.Wrapf(err, "failed to parse hcpOpenShiftCluster ID %s", fetchedhcpOpenShiftCluster.ID)
-	}
-	s.Scope.SetProviderID(providerID)
-	s.Scope.SethcpOpenShiftClusterState(&fetchedhcpOpenShiftCluster)
-	*/
 	return nil
 }
 
@@ -162,10 +136,10 @@ func (s *Service) Delete(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, s.Scope.DefaultedAzureServiceReconcileTimeout())
 	defer cancel()
 
-	spec := s.Scope.HcpOpenShiftClusterSpecs(ctx)
-	hcpOpenShiftClusterSpecs, ok := spec.(*HcpOpenShiftClustersSpec)
+	spec := s.Scope.HcpOpenShiftClusterCredentialsSpecs(ctx)
+	hcpOpenShiftClusterSpecs, ok := spec.(*HcpOpenShiftClusterCredentialsSpec)
 	if !ok {
-		return errors.Errorf("%T is not a HcpOpenShiftClusterSpecs", spec)
+		return errors.Errorf("%T is not a HcpOpenShiftClusterCredentialsSpecs", spec)
 	}
 	log.Info(fmt.Sprintf("Delete: %s", hcpOpenShiftClusterSpecs.Name))
 
@@ -186,10 +160,10 @@ func (s *Service) validateSpec(ctx context.Context) error {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.validateSpec")
 	defer done()
 
-	spec := s.Scope.HcpOpenShiftClusterSpecs(ctx)
-	hcpOpenShiftClusterSpecs, ok := spec.(*HcpOpenShiftClustersSpec)
+	spec := s.Scope.HcpOpenShiftClusterCredentialsSpecs(ctx)
+	hcpOpenShiftClusterSpecs, ok := spec.(*HcpOpenShiftClusterCredentialsSpec)
 	if !ok {
-		return errors.Errorf("%T is not a HcpOpenShiftClusterSpecs", spec)
+		return errors.Errorf("%T is not a HcpOpenShiftClusterCredentialsSpecs", spec)
 	}
 	log.Info(fmt.Sprintf("validateSpec: %s", hcpOpenShiftClusterSpecs.Name))
 

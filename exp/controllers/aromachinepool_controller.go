@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/cluster-api/util/patch"
 
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -77,7 +78,20 @@ func (r *AroMachinePoolReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	//	err = fmt.Errorf("not implemented")
-	//	log.Error(err, fmt.Sprintf("Reconciling %s", infrav2exp.AROMachinePoolKind))
+	patchHelper, err := patch.NewHelper(aroMachinePool, r.Client)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to create patch helper: %w", err)
+	}
+	defer func() {
+		err := patchHelper.Patch(ctx, aroMachinePool)
+		if err != nil && resultErr == nil {
+			resultErr = err
+			result = ctrl.Result{}
+		}
+	}()
+
+	aroMachinePool.Status.Ready = true
+	aroMachinePool.Status.Version = "1.2"
+
 	return ctrl.Result{}, err
 }

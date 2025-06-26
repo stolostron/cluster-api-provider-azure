@@ -17,7 +17,6 @@ limitations under the License.
 package v1beta2
 
 import (
-	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -28,24 +27,6 @@ type AROClusterSpec struct {
 	// ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.
 	// +optional
 	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint"`
-
-	// TODO mveber - added
-	//FailureDomains map[string]any
-
-	// Secrets: configures where to place Azure generated secrets.
-	Secrets *ManagedClusterOperatorSecrets `json:"secrets,omitempty"`
-}
-
-// ManagedClusterOperatorSecrets
-// TODO: mveber - added
-type ManagedClusterOperatorSecrets struct {
-	// AdminCredentials: indicates where the AdminCredentials secret should be placed. If omitted, the secret will not be
-	// retrieved from Azure.
-	AdminCredentials *genruntime.SecretDestination `json:"adminCredentials,omitempty"`
-
-	// UserCredentials: indicates where the UserCredentials secret should be placed. If omitted, the secret will not be
-	// retrieved from Azure.
-	UserCredentials *genruntime.SecretDestination `json:"userCredentials,omitempty"`
 }
 
 // AROClusterStatus defines the observed state of AROCluster.
@@ -67,48 +48,6 @@ type AROClusterStatus struct {
 	// next reconciliation loop.
 	// +optional
 	LongRunningOperationStates infrav1.Futures `json:"longRunningOperationStates,omitempty"`
-
-	CurrentKubernetesVersion *string `json:"currentKubernetesVersion,omitempty"`
-
-	// PrivateFQDN: The FQDN of private cluster.
-	PrivateFQDN *string `json:"privateFQDN,omitempty"`
-
-	// Fqdn: The FQDN of the master pool.
-	Fqdn *string `json:"fqdn,omitempty"`
-
-	// AadProfile: The Azure Active Directory configuration.
-	AadProfile *AROAADProfile `json:"aadProfile,omitempty"`
-
-	// DisableLocalAccounts: If set to true, getting static credentials will be disabled for this cluster. This must only be
-	// used on Managed Clusters that are AAD enabled. For more details see [disable local
-	// accounts](https://docs.microsoft.com/azure/aks/managed-aad#disable-local-accounts-preview).
-	DisableLocalAccounts *bool `json:"disableLocalAccounts,omitempty"`
-}
-
-// AROAADProfile
-// TODO: mveber - added
-type AROAADProfile struct {
-	// AdminGroupObjectIDs: The list of AAD group object IDs that will have admin role of the cluster.
-	AdminGroupObjectIDs []string `json:"adminGroupObjectIDs,omitempty"`
-
-	// ClientAppID: (DEPRECATED) The client AAD application ID. Learn more at https://aka.ms/aks/aad-legacy.
-	ClientAppID *string `json:"clientAppID,omitempty"`
-
-	// EnableAzureRBAC: Whether to enable Azure RBAC for Kubernetes authorization.
-	EnableAzureRBAC *bool `json:"enableAzureRBAC,omitempty"`
-
-	// Managed: Whether to enable managed AAD.
-	Managed *bool `json:"managed,omitempty"`
-
-	// ServerAppID: (DEPRECATED) The server AAD application ID. Learn more at https://aka.ms/aks/aad-legacy.
-	ServerAppID *string `json:"serverAppID,omitempty"`
-
-	// ServerAppSecret: (DEPRECATED) The server AAD application secret. Learn more at https://aka.ms/aks/aad-legacy.
-	ServerAppSecret *string `json:"serverAppSecret,omitempty"`
-
-	// TenantID: The AAD tenant ID to use for authentication. If not specified, will use the tenant of the deployment
-	// subscription.
-	TenantID *string `json:"tenantID,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -22,9 +22,14 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"k8s.io/klog/v2"
+	"net/url"
+	"sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/controllers"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"strconv"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -87,13 +92,13 @@ func (r *AROClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 				predicate.Funcs{
 					CreateFunc: func(ev event.CreateEvent) bool {
 						controlPlane := ev.Object.(*cplane.AROControlPlane)
-						return !controlPlane.Status.ControlPlaneEndpoint.IsZero()
+						return controlPlane.Status.APIURL != ""
 					},
 					UpdateFunc: func(ev event.UpdateEvent) bool {
 						oldControlPlane := ev.ObjectOld.(*cplane.AROControlPlane)
 						newControlPlane := ev.ObjectNew.(*cplane.AROControlPlane)
-						return oldControlPlane.Status.ControlPlaneEndpoint !=
-							newControlPlane.Status.ControlPlaneEndpoint
+						return oldControlPlane.Status.APIURL !=
+							newControlPlane.Status.APIURL
 					},
 				},
 			),
@@ -121,7 +126,7 @@ func aroControlPlaneToAroClusterMap(c client.Client, log logr.Logger) handler.Ma
 			return nil
 		}
 
-		if aroControlPlane.Status.ControlPlaneEndpoint.IsZero() { // TODO: mveber - rosa has Spec.ControlPlaneEndpoint
+		if aroControlPlane.Status.APIURL == "" {
 			log.V(4).Info("AROControlPlane has no control plane endpoint, skipping mapping")
 			return nil
 		}
@@ -253,13 +258,22 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 		return ctrl.Result{}, fmt.Errorf("failed to get AROControlPlane %s/%s: %w", aroControlPlane.Namespace, aroControlPlane.Name, err)
 	}
 
+	endpoint, err := r.getControlPlaneEndpoint(aroControlPlane.Status.APIURL)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get enpoint for url %s from AROControlPlane %s/%s: %w", aroControlPlane.Status.APIURL, aroControlPlane.Namespace, aroControlPlane.Name, err)
+	}
+
 	// Set the values from the managed control plane
-	aroCluster.Spec.ControlPlaneEndpoint = aroControlPlane.Status.ControlPlaneEndpoint // TODO: mveber - rosa has aroControlPlane.Spec :(
+	aroCluster.Spec.ControlPlaneEndpoint = endpoint
+	aroCluster.Status.Ready = !aroCluster.Spec.ControlPlaneEndpoint.IsZero()
+	if aroCluster.Status.Ready {
+		conditions.MarkTrue(aroCluster, v1beta1.NetworkInfrastructureReadyCondition)
+	} else {
+		conditions.MarkFalse(aroCluster, v1beta1.NetworkInfrastructureReadyCondition, "ExternallyManagedControlPlane", clusterv1.ConditionSeverityInfo, "Waiting for the Control Plane port")
+	}
+	conditions.SetSummary(aroCluster)
 
-	// TODO: mveber - rosa sets true unconditionaly
-	aroCluster.Status.Ready = true // !aroCluster.Spec.ControlPlaneEndpoint.IsZero()
-
-	log.Info("Successfully reconciled AROCluster")
+	log.Info("Successfully reconciled AROCluster", "Ready", aroCluster.Status.Ready)
 
 	return ctrl.Result{}, nil
 }
@@ -283,4 +297,23 @@ func (r *AROClusterReconciler) reconcileDelete(ctx context.Context, aroCluster *
 
 	controllerutil.RemoveFinalizer(aroCluster, infra.AROClusterFinalizer)
 	return ctrl.Result{}, nil
+}
+
+func (r *AROClusterReconciler) getControlPlaneEndpoint(apiUrl string) (clusterv1.APIEndpoint, error) {
+	if apiUrl == "" {
+		return clusterv1.APIEndpoint{}, nil
+	}
+	u, err := url.ParseRequestURI(apiUrl)
+	if err != nil {
+		return clusterv1.APIEndpoint{}, err
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		return clusterv1.APIEndpoint{}, err
+	}
+	host := strings.Split(u.Host, ":")[0]
+	return clusterv1.APIEndpoint{
+		Host: host,
+		Port: int32(port),
+	}, nil
 }

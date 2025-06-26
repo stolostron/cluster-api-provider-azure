@@ -31,7 +31,6 @@ type HcpOpenShiftClustersSpec struct {
 	Location               string
 	ResourceGroup          string
 	ManagedIdentities      *cplane.ManagedIdentities
-	ClusterName            string
 	AdditionalTags         map[string]string
 	NetworkSecurityGroupID string
 	Subnet                 string
@@ -52,9 +51,9 @@ func (s *HcpOpenShiftClustersSpec) ResourceGroupName() string {
 	return s.ResourceGroup
 }
 
-// OwnerResourceName is a no-op for disks.
+// OwnerResourceName returns the cluster name.
 func (s *HcpOpenShiftClustersSpec) OwnerResourceName() string {
-	return s.ClusterName
+	return s.Name
 }
 
 // getManagedIdentities converts managed identities
@@ -70,7 +69,7 @@ func (s *HcpOpenShiftClustersSpec) getManagedIdentities() (*arohcp.UserAssignedI
 			"file-csi-driver":          &s.ManagedIdentities.ControlPlaneOperators.FileCsiDriverManagedIdentities,
 			"image-registry":           &s.ManagedIdentities.ControlPlaneOperators.ImageRegistryManagedIdentities,
 			"cloud-network-config":     &s.ManagedIdentities.ControlPlaneOperators.CloudNetworkConfigManagedIdentities,
-                        // TODO: mveber - update mohamed's proposal - kms should be removed
+			// TODO: mveber - update mohamed's proposal - kms should be removed
 			// "kms":                      &s.ManagedIdentities.ControlPlaneOperators.KmsManagedIdentities,
 		},
 		DataPlaneOperators: map[string]*string{
@@ -113,7 +112,7 @@ func (s *HcpOpenShiftClustersSpec) getTags() map[string]*string {
 
 // getManagedResourceGroup - returns manager resource group name
 func (s *HcpOpenShiftClustersSpec) getManagedResourceGroup() *string {
-	managedResourceGroup := fmt.Sprintf("__capz_aro_managed_%s_rg", s.ClusterName)
+	managedResourceGroup := fmt.Sprintf("__capz_aro_managed_%s_rg", s.Name)
 	return &managedResourceGroup
 }
 
@@ -220,7 +219,7 @@ func (s *HcpOpenShiftClustersSpec) Parameters(_ context.Context, existing interf
 		},
 		Tags: s.getTags(),
 		// ID:   nil,
-		Name: &s.ClusterName,
+		Name: &s.Name,
 		// SystemData: &arohcp.SystemData{},
 		// Type: nil,
 	}, nil

@@ -51,9 +51,9 @@ var _ Client = &azureClient{}
 
 // newClient creates a new AROCluster client from an authorizer.
 func newClient(auth azure.Authorizer, apiCallTimeout time.Duration) (*azureClient, error) {
-	isDevevel := true
+	isDevel := false
 	var extraPolicies []policy.Policy
-	if isDevevel {
+	if isDevel {
 		now := time.Now()
 		extraPolicies = append(extraPolicies, azure.CustomPutPatchHeaderPolicy{
 			Headers: map[string]string{
@@ -70,7 +70,7 @@ func newClient(auth azure.Authorizer, apiCallTimeout time.Duration) (*azureClien
 		return nil, errors.Wrap(err, "failed to create hcpopenshiftclusters client options")
 	}
 	cred := auth.Token()
-	if isDevevel {
+	if isDevel {
 		opts.InsecureAllowCredentialWithHTTP = true
 		opts.Cloud.Services = map[cloud.ServiceName]cloud.ServiceConfiguration{
 			"resourceManager": cloud.ServiceConfiguration{
@@ -146,7 +146,6 @@ func (ac *azureClient) CreateOrUpdateAsync(ctx context.Context, spec azure.Resou
 
 	opts := &arohcp.HcpOpenShiftClustersClientBeginCreateOrUpdateOptions{ResumeToken: resumeToken}
 	log.V(4).Info("sending request", "resumeToken", resumeToken)
-	// BeginCreateOrUpdate(ctx context.Context, resourceGroupName string, hcpOpenShiftClusterName string, resource HcpOpenShiftCluster, options *HcpOpenShiftClustersClientBeginCreateOrUpdateOptions) (*runtime.Poller[HcpOpenShiftClustersClientCreateOrUpdateResponse], error) {
 	poller, err = ac.hcpopenshiftcluster.BeginCreateOrUpdate(ctx, spec.ResourceGroupName(), spec.ResourceName(), hcpOpenShiftCluster, opts)
 	if err != nil {
 		return nil, nil, err

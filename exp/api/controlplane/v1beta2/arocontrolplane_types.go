@@ -234,10 +234,10 @@ type AROControlPlaneStatus struct {
 	// is managed by an external service such as AKS, EKS, GKE, etc.
 	// +kubebuilder:default=true
 	ExternalManagedControlPlane *bool `json:"externalManagedControlPlane,omitempty"` // TODO: is in ROSA
-	// Initialized denotes whether or not the control plane has the
-	// uploaded kubernetes config-map.
+	// initialization provides observations of the AROControlPlane initialization process.
+	// NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Machine provisioning.
 	// +optional
-	Initialized bool `json:"initialized"`
+	Initialization *AROControlPlaneInitializationStatus `json:"initialization,omitempty"` // TODO: mvwbwe - Mohames's proposal is for v1beta1
 	// Ready denotes that the AROControlPlane API Server is ready to receive requests.
 	// +kubebuilder:default=false
 	Ready bool `json:"ready"`
@@ -264,17 +264,11 @@ type AROControlPlaneStatus struct {
 	APIURL string `json:"apiURL,omitempty"`
 
 	// ARO-HCP OpenShift semantic version, for example "4.20.0".
-        // TODO: mveber - mohamed's proposal +omitempty
+	// TODO: mveber - mohamed's proposal +omitempty
 	Version string `json:"version,omitempty"`
 
 	// Available upgrades for the ARO hosted control plane.
 	AvailableUpgrades []string `json:"availableUpgrades,omitempty"`
-
-	//TODO: mveber - required ControlPlaneEndpoint
-
-	// ControlPlaneEndpoint represents the endpoint for the cluster's API server.
-	//+optional
-	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint"`
 
 	//TODO: mveber - required for features
 
@@ -282,6 +276,16 @@ type AROControlPlaneStatus struct {
 	// next reconciliation loop.
 	// +optional
 	LongRunningOperationStates infrav1.Futures `json:"longRunningOperationStates,omitempty"`
+}
+
+// AROControlPlaneInitializationStatus provides observations of the AROControlPlane initialization process.
+type AROControlPlaneInitializationStatus struct {
+	// controlPlaneInitialized is true when the AROControlPlane provider reports that the Kubernetes control plane is initialized;
+	// A control plane is considered initialized when it can accept requests, no matter if this happens before
+	// the control plane is fully provisioned or not.
+	// NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Machine provisioning.
+	// +optional
+	ControlPlaneInitialized bool `json:"controlPlaneInitialized,omitempty"`
 }
 
 // +kubebuilder:object:root=true

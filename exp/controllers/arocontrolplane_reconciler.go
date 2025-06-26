@@ -18,7 +18,14 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclustercredentials"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclusters"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/secret"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/pkg/errors"
 
@@ -33,11 +40,12 @@ type aroControlPlaneService struct {
 	scope *scope.AROControlPlaneScope
 	// services is the list of services that are reconciled by this controller.
 	// The order of the services is important as it determines the order in which the services are reconciled.
-	services  []azure.ServiceReconciler
-	skuCache  *resourceskus.Cache
-	Reconcile func(context.Context) error
-	Pause     func(context.Context) error
-	Delete    func(context.Context) error
+	services   []azure.ServiceReconciler
+	skuCache   *resourceskus.Cache
+	Reconcile  func(context.Context) error
+	Pause      func(context.Context) error
+	Delete     func(context.Context) error
+	kubeclient client.Client
 }
 
 // newAROControlPlaneService populates all the services based on input scope.
@@ -50,10 +58,16 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 	if err != nil {
 		return nil, err
 	}
+	hpcOpenshiftSecretsSvc, err := hcpopenshiftclustercredentials.New(scope, skuCache)
+	if err != nil {
+		return nil, err
+	}
 	acs := &aroControlPlaneService{
-		scope: scope,
+		kubeclient: scope.Client,
+		scope:      scope,
 		services: []azure.ServiceReconciler{
 			hpcOpenshiftSvc,
+			hpcOpenshiftSecretsSvc,
 		},
 		skuCache: skuCache,
 	}
@@ -83,6 +97,12 @@ func (s *aroControlPlaneService) reconcile(ctx context.Context) error {
 	for _, service := range s.services {
 		if err := service.Reconcile(ctx); err != nil {
 			return errors.Wrapf(err, "failed to reconcile AROControlPlane service %s", service.Name())
+		}
+	}
+
+	if !s.scope.HasValidKubeconfig(ctx) {
+		if err := s.reconcileKubeconfig(ctx); err != nil {
+			return errors.Wrap(err, "failed to reconcile kubeconfig secret")
 		}
 	}
 
@@ -145,6 +165,78 @@ func (s *aroControlPlaneService) setFailureDomainsForLocation(ctx context.Contex
 	return nil
 }
 */
+
+func (s *aroControlPlaneService) reconcileKubeconfig(ctx context.Context) error {
+	ctx, _, done := tele.StartSpanWithLogger(ctx, "controllers.ControlPlaneService.reconcileKubeconfig")
+	defer done()
+
+	// store cluster-info for the cluster with the admin kubeconfig.
+	kubeconfigFile, err := clientcmd.Load(s.scope.GetAdminKubeconfigData())
+	if err != nil {
+		return errors.Wrap(err, "failed to turn aks credentials into kubeconfig file struct")
+	}
+
+	cluster := kubeconfigFile.Contexts[kubeconfigFile.CurrentContext].Cluster
+	caData := kubeconfigFile.Clusters[cluster].CertificateAuthorityData
+	if caData == nil {
+		// TODO: mveber - ca.crt - is null
+		kubeconfigFile.Clusters[cluster].InsecureSkipTLSVerify = true
+	} else {
+		caSecret := s.scope.MakeClusterCA()
+		if _, err := controllerutil.CreateOrUpdate(ctx, s.kubeclient, caSecret, func() error {
+			caSecret.Data = map[string][]byte{
+				secret.TLSCrtDataName: caData,
+				secret.TLSKeyDataName: []byte("foo"),
+			}
+			return nil
+		}); err != nil {
+			return errors.Wrapf(err, "failed to reconcile certificate authority data secret for cluster")
+		}
+	}
+
+	kubeconfigAdmin, err := clientcmd.Write(*kubeconfigFile)
+	if err != nil {
+		return err
+	}
+	// TODO: mveber - add kubeconfigUser
+	kubeConfigs := [][]byte{kubeconfigAdmin}
+
+	for i, kubeConfigData := range kubeConfigs {
+		if len(kubeConfigData) == 0 {
+			continue
+		}
+		kubeConfigSecret := s.scope.MakeEmptyKubeConfigSecret()
+		if i == 1 {
+			// 2nd kubeconfig is the user kubeconfig
+			kubeConfigSecret.Name = fmt.Sprintf("%s-user", kubeConfigSecret.Name)
+		}
+		if _, err := controllerutil.CreateOrUpdate(ctx, s.kubeclient, &kubeConfigSecret, func() error {
+			kubeConfigSecret.Data = map[string][]byte{
+				secret.KubeconfigDataName: kubeConfigData,
+			}
+
+			// When upgrading from an older version of CAPI, the kubeconfig secret may not have the required
+			// cluster name label. Add it here to avoid kubeconfig issues during upgrades.
+			if _, ok := kubeConfigSecret.Labels[clusterv1.ClusterNameLabel]; !ok {
+				if kubeConfigSecret.Labels == nil {
+					kubeConfigSecret.Labels = make(map[string]string)
+				}
+				kubeConfigSecret.Labels[clusterv1.ClusterNameLabel] = s.scope.ClusterName()
+			}
+			return nil
+		}); err != nil {
+			return errors.Wrap(err, "failed to reconcile kubeconfig secret for cluster")
+		}
+	}
+
+	if caData != nil {
+		if err := s.scope.StoreClusterInfo(ctx, caData); err != nil {
+			return errors.Wrap(err, "failed to construct cluster-info")
+		}
+	}
+
+	return nil
+}
 
 func (s *aroControlPlaneService) getService(name string) (azure.ServiceReconciler, error) {
 	for _, service := range s.services {

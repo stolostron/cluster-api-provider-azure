@@ -21,8 +21,6 @@ import (
 	"context"
 	errorsCore "errors"
 	"fmt"
-	"time"
-
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
@@ -42,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"strings"
 
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
@@ -182,7 +181,7 @@ func (r *AROControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}()
 
 	aroControlPlane.Status.Ready = false
-	aroControlPlane.Status.Initialized = false
+	aroControlPlane.Status.Initialization = &cplane.AROControlPlaneInitializationStatus{ControlPlaneInitialized: false}
 
 	// Get the cluster
 	cluster, err := util.GetOwnerCluster(ctx, r.Client, aroControlPlane.ObjectMeta)
@@ -230,16 +229,9 @@ func (r *AROControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		Timeouts:        r.Timeouts,
 		CredentialCache: r.CredentialCache,
 		// TODO: mveber - what about this variables:
-		SubscriptionID:   "1d3378d3-5a3f-4712-85a1-2485495dfc4b",
+		SubscriptionID:   strings.Split(aroControlPlane.Spec.Platform.Subnet, "/")[2],
 		AzureEnvironment: "",
 	})
-	/* TODO: mveber - from ROSA
-
-	ControllerName: strings.ToLower(aroControlPlaneKind),
-	Endpoints:      r.Endpoints,
-	Logger:         log,
-	NewStsClient:   r.NewStsClient,
-	*/
 
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to create scope: %w", err)
@@ -251,10 +243,6 @@ func (r *AROControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			resultErr = errorsCore.Join(resultErr, err)
 		}
 	}()
-
-	if aroScope.ControlPlane.Status.Version == "" {
-		aroScope.ControlPlane.Status.Version = "1.2"
-	}
 
 	if cluster != nil && cluster.Spec.Paused ||
 		annotations.HasPaused(aroControlPlane) {
@@ -326,39 +314,33 @@ func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, scope *
 	}
 
 	// No errors, so mark us ready so the Cluster API Cluster Controller can pull it
-	scope.ControlPlane.Status.Ready = true
-	scope.ControlPlane.Status.Initialized = true
-
-	aroCluster := &infrav2exp.AROCluster{}
-	errGet := r.Get(ctx, client.ObjectKey{Namespace: aroControlPlane.Namespace, Name: aroControlPlane.Spec.AroClusterName}, aroCluster)
-	if errGet != nil {
-		return ctrl.Result{}, fmt.Errorf("error getting AroCluster: %w", errGet)
-	}
-
-	aroControlPlane.Status.ControlPlaneEndpoint = getControlPlaneEndpoint(aroCluster)
-	if aroCluster.Status.CurrentKubernetesVersion != nil {
-		aroControlPlane.Status.Version = "v" + *aroCluster.Status.CurrentKubernetesVersion
-	}
+	scope.ControlPlane.Status.Ready = (aroControlPlane.Status.APIURL != "")
+	scope.ControlPlane.Status.Initialization = &cplane.AROControlPlaneInitializationStatus{ControlPlaneInitialized: scope.ControlPlane.Status.Ready}
 
 	/*
-		tokenExpiresIn, err := r.reconcileKubeconfig(ctx, aroControlPlane, cluster, aroCluster)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to reconcile kubeconfig: %w", err)
+		aroCluster := &infrav2exp.AROCluster{}
+		errGet := r.Get(ctx, client.ObjectKey{Namespace: aroControlPlane.Namespace, Name: aroControlPlane.Spec.AroClusterName}, aroCluster)
+		if errGet != nil {
+			return ctrl.Result{}, fmt.Errorf("error getting AroCluster: %w", errGet)
 		}
-		if tokenExpiresIn != nil && *tokenExpiresIn <= 0 { // the token has already expired
-			return ctrl.Result{Requeue: true}, nil
-		}
-		// ensure we refresh the token when it expires
-		result := ctrl.Result{RequeueAfter: ptr.Deref(tokenExpiresIn, 0)}
 	*/
-	result := ctrl.Result{RequeueAfter: time.Second * 30}
 
-	aroControlPlane.Status.Ready = !aroControlPlane.Status.ControlPlaneEndpoint.IsZero()
-	// The AKS API doesn't allow us to distinguish between CAPI's definitions of "initialized" and "ready" so
-	// we treat them equivalently.
-	aroControlPlane.Status.Initialized = aroControlPlane.Status.Ready
+	/*
+			tokenExpiresIn, err := r.reconcileKubeconfig(ctx, aroControlPlane, cluster, aroCluster)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to reconcile kubeconfig: %w", err)
+			}
+			if tokenExpiresIn != nil && *tokenExpiresIn <= 0 { // the token has already expired
+				return ctrl.Result{Requeue: true}, nil
+			}
+			// ensure we refresh the token when it expires
+			result := ctrl.Result{RequeueAfter: ptr.Deref(tokenExpiresIn, 0)}
 
-	return result, nil
+		aroControlPlane.Status.Ready = aroControlPlane.Status.APIURL != ""
+		aroControlPlane.Status.Initialized = aroControlPlane.Status.Ready
+	*/
+
+	return ctrl.Result{}, nil
 }
 
 /*
@@ -504,20 +486,4 @@ func (r *AROControlPlaneReconciler) reconcileDelete(ctx context.Context, scope *
 	}
 
 	return reconcile.Result{}, nil
-}
-
-func getControlPlaneEndpoint(aroCluster *infrav2exp.AROCluster) clusterv1.APIEndpoint {
-	if aroCluster.Status.PrivateFQDN != nil {
-		return clusterv1.APIEndpoint{
-			Host: *aroCluster.Status.PrivateFQDN,
-			Port: 443,
-		}
-	}
-	if aroCluster.Status.Fqdn != nil {
-		return clusterv1.APIEndpoint{
-			Host: *aroCluster.Status.Fqdn,
-			Port: 443,
-		}
-	}
-	return clusterv1.APIEndpoint{}
 }
