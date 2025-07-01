@@ -76,6 +76,14 @@ spec:
                     minimum: 1
                     type: integer
                 type: object
+              channelGroup:
+                default: stable
+                description: OpenShift version channel group, default is stable.
+                enum:
+                - stable
+                - candidate
+                - nightly
+                type: string
               labels:
                 additionalProperties:
                   type: string
@@ -114,7 +122,7 @@ spec:
                     type: string
                   subnetRef:
                     description: Subnet Ref name that is used to create the VirtualNetworksSubnet
-                      CR. The SubnetRef must be in the same namespace as the AroMachinePool
+                      CR. The SubnetRef must be in the same namespace as the AROMachinePool
                       and cannot be set with Subnet.
                     type: string
                   vmSize:
@@ -151,9 +159,10 @@ spec:
               version:
                 description: |-
                   Version specifies the OpenShift version of the nodes associated with this machinepool.
-                  AROControlPlane version is used if not set.
+                  AROMachinePool version is used if not set.
                 type: string
             required:
+            - channelGroup
             - nodePoolName
             type: object
           status:
@@ -231,6 +240,43 @@ spec:
               id:
                 description: ID is the ID given by ARO.
                 type: string
+              longRunningOperationStates:
+                description: |-
+                  LongRunningOperationStates saves the state for ARO long-running operations so they can be continued on the
+                  next reconciliation loop.
+                items:
+                  description: Future contains the data needed for an Azure long-running
+                    operation to continue across reconcile loops.
+                  properties:
+                    data:
+                      description: Data is the base64 url encoded json Azure AutoRest
+                        Future.
+                      type: string
+                    name:
+                      description: |-
+                        Name is the name of the Azure resource.
+                        Together with the service name, this forms the unique identifier for the future.
+                      type: string
+                    resourceGroup:
+                      description: ResourceGroup is the Azure resource group for the
+                        resource.
+                      type: string
+                    serviceName:
+                      description: |-
+                        ServiceName is the name of the Azure service.
+                        Together with the name of the resource, this forms the unique identifier for the future.
+                      type: string
+                    type:
+                      description: Type describes the type of future, such as update,
+                        create, delete, etc.
+                      type: string
+                  required:
+                  - data
+                  - name
+                  - serviceName
+                  - type
+                  type: object
+                type: array
               provisioningState:
                 description: |-
                   ProvisioningState represents the asynchronous provisioning state of an ARM resource.

@@ -19,6 +19,7 @@ package v1beta2
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
@@ -36,20 +37,6 @@ const (
 
 	// AlwaysAcknowledge always acknowledg if required and proceed with the upgrade.
 	AlwaysAcknowledge VersionGateAckType = "AlwaysAcknowledge"
-)
-
-// ChannelGroupType specifies the OpenShift version channel group.
-type ChannelGroupType string
-
-const (
-	// Stable channel group is the default channel group for stable releases.
-	Stable ChannelGroupType = "stable"
-
-	// Candidate channel group is for testing candidate builds.
-	Candidate ChannelGroupType = "candidate"
-
-	// Nightly channel group is for testing nigtly builds.
-	Nightly ChannelGroupType = "nightly"
 )
 
 // AROControlPlaneSpec defines the desired state of AROControlPlane.
@@ -93,7 +80,7 @@ type AROControlPlaneSpec struct { //nolint: maligned
 	//
 	// +kubebuilder:validation:Enum=stable;candidate;nightly
 	// +kubebuilder:default=stable
-	ChannelGroup ChannelGroupType `json:"channelGroup"`
+	ChannelGroup v1beta2.ChannelGroupType `json:"channelGroup"`
 
 	// VersionGate requires acknowledgment when upgrading ARO-HCP y-stream versions (e.g., from 4.15 to 4.16).
 	// Default is WaitForAcknowledge.

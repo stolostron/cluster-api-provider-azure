@@ -653,12 +653,17 @@ func registerControllers(ctx context.Context, mgr manager.Manager) {
 			os.Exit(1)
 		}
 
-		if err := (&infrav1controllersexp.AroMachinePoolReconciler{
-			Client:           mgr.GetClient(),
-			WatchFilterValue: watchFilterValue,
-		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: azureMachinePoolConcurrency}); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "AROMachinePool")
-			os.Exit(1)
+		if feature.Gates.Enabled(capifeature.MachinePool) {
+			if err := infrav1controllersexp.NewAROMachinePoolReconciler(
+				mgr.GetClient(),
+				mgr.GetEventRecorderFor("aromachinepoolmachine-reconciler"),
+				timeouts,
+				watchFilterValue,
+				credCache,
+			).SetupWithManager(ctx, mgr, controllers.Options{Options: controller.Options{MaxConcurrentReconciles: azureClusterConcurrency}, Cache: clusterCache}); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "AROMachinePool")
+				os.Exit(1)
+			}
 		}
 	}
 }

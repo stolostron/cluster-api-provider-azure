@@ -36,10 +36,16 @@ type AROMachinePoolSpec struct {
 	NodePoolName string `json:"nodePoolName"`
 
 	// Version specifies the OpenShift version of the nodes associated with this machinepool.
-	// AROControlPlane version is used if not set.
+	// AROMachinePool version is used if not set.
 	//
 	// +optional
 	Version string `json:"version,omitempty"`
+
+	// OpenShift version channel group, default is stable.
+	//
+	// +kubebuilder:validation:Enum=stable;candidate;nightly
+	// +kubebuilder:default=stable
+	ChannelGroup ChannelGroupType `json:"channelGroup"` // TODO: mveber - added
 
 	// AROPlatformProfileMachinePool represents the NodePool Azure platform configuration.
 	Platform AROPlatformProfileMachinePool `json:"platform,omitempty"`
@@ -74,7 +80,7 @@ type AROPlatformProfileMachinePool struct {
 	// Azure subnet id
 	Subnet string `json:"subnet,omitempty"`
 
-	// Subnet Ref name that is used to create the VirtualNetworksSubnet CR. The SubnetRef must be in the same namespace as the AroMachinePool and cannot be set with Subnet.
+	// Subnet Ref name that is used to create the VirtualNetworksSubnet CR. The SubnetRef must be in the same namespace as the AROMachinePool and cannot be set with Subnet.
 	SubnetRef string `json:"subnetRef,omitempty"`
 
 	// VMSize sets the VM disk volume size to the node.
@@ -154,6 +160,13 @@ type AROMachinePoolStatus struct {
 
 	// ARO-HCP OpenShift semantic version, for example "4.20.0".
 	Version string `json:"version"`
+
+	//TODO: mveber - required for features
+
+	// LongRunningOperationStates saves the state for ARO long-running operations so they can be continued on the
+	// next reconciliation loop.
+	// +optional
+	LongRunningOperationStates infrav1.Futures `json:"longRunningOperationStates,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -175,12 +188,25 @@ type AROMachinePool struct {
 	Status AROMachinePoolStatus `json:"status,omitempty"`
 }
 
+// GetFutures returns the list of long running operation states for an AROMachinePool API object.
+func (c *AROMachinePool) GetFutures() infrav1.Futures {
+	return c.Status.LongRunningOperationStates
+}
+
+// SetFutures will set the given long running operation states on an AROMachinePool object.
+func (c *AROMachinePool) SetFutures(futures infrav1.Futures) {
+	c.Status.LongRunningOperationStates = futures
+}
+
 const (
 	// AROMachinePoolKind is the kind for AROMachinePool.
 	AROMachinePoolKind = "AROMachinePool"
 
-	// AROMachinePoolFinalizer is the finalizer added to AROControlPlanes.
+	// AROMachinePoolFinalizer is the finalizer added to AROMachinePool.
 	AROMachinePoolFinalizer = "aromachinepool/finalizer"
+
+	// AROMachinePoolReadyCondition condition reports on the successful reconciliation of AROMachinePool.
+	AROMachinePoolReadyCondition clusterv1.ConditionType = "AROMachinePoolReady"
 )
 
 // +kubebuilder:object:root=true

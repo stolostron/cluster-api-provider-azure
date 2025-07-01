@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hcpopenshiftclusters
+package hcpopenshiftnodepools
 
 import (
 	"context"
@@ -35,21 +35,21 @@ import (
 // Client wraps go-sdk.
 type Client interface {
 	Get(context.Context, azure.ResourceSpecGetter) (interface{}, error)
-	List(context.Context, string) ([]arohcp.HcpOpenShiftCluster, error)
+	List(ctx context.Context, resourceGroupName string, clusterName string) (result []arohcp.NodePool, err error)
 
-	CreateOrUpdateAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string, parameters interface{}) (result interface{}, poller *runtime.Poller[arohcp.HcpOpenShiftClustersClientCreateOrUpdateResponse], err error)
-	DeleteAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string) (poller *runtime.Poller[arohcp.HcpOpenShiftClustersClientDeleteResponse], err error)
+	CreateOrUpdateAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string, parameters interface{}) (result interface{}, poller *runtime.Poller[arohcp.NodePoolsClientCreateOrUpdateResponse], err error)
+	DeleteAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string) (poller *runtime.Poller[arohcp.NodePoolsClientDeleteResponse], err error)
 }
 
 // azureClient contains the Azure go-sdk Client.
 type azureClient struct {
-	hcpopenshiftcluster *arohcp.HcpOpenShiftClustersClient
-	apiCallTimeout      time.Duration
+	hcpopenshiftnodepool *arohcp.NodePoolsClient
+	apiCallTimeout       time.Duration
 }
 
 var _ Client = &azureClient{}
 
-// newClient creates a new AROCluster client from an authorizer.
+// newClient creates a new AROMachinePool client from an authorizer.
 func newClient(auth azure.Authorizer, apiCallTimeout time.Duration) (*azureClient, error) {
 	isDevel := false
 	var extraPolicies []policy.Policy
@@ -67,7 +67,7 @@ func newClient(auth azure.Authorizer, apiCallTimeout time.Duration) (*azureClien
 
 	opts, err := azure.ARMClientOptions(auth.CloudEnvironment(), extraPolicies...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create hcpopenshiftclusters client options")
+		return nil, errors.Wrap(err, "failed to create hcpopenshiftnodepools client options")
 	}
 	cred := auth.Token()
 	if isDevel {
@@ -81,72 +81,58 @@ func newClient(auth azure.Authorizer, apiCallTimeout time.Duration) (*azureClien
 	}
 	factory, err := arohcp.NewClientFactory(auth.SubscriptionID(), cred, opts)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create hcpopenshiftclusters client factory")
+		return nil, errors.Wrap(err, "failed to create hcpopenshiftnodepools client factory")
 	}
-	return &azureClient{factory.NewHcpOpenShiftClustersClient(), apiCallTimeout}, nil
+	return &azureClient{factory.NewNodePoolsClient(), apiCallTimeout}, nil
 }
 
-// Get gets the specified HcpOpenShiftCluster.
+// Get gets the specified NodePool.
 func (ac *azureClient) Get(ctx context.Context, spec azure.ResourceSpecGetter) (result interface{}, err error) {
-	ctx, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.azureClient.Get")
+	ctx, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools.azureClient.Get")
 	defer done()
 
-	// Get(ctx context.Context, resourceGroupName string, hcpOpenShiftClusterName string, options *HcpOpenShiftClustersClientGetOptions)
-	resp, err := ac.hcpopenshiftcluster.Get(ctx, spec.ResourceGroupName(), spec.ResourceName(), nil)
+	resp, err := ac.hcpopenshiftnodepool.Get(ctx, spec.ResourceGroupName(), spec.OwnerResourceName(), spec.ResourceName(), nil)
 	if err != nil {
 		return nil, err
 	}
-	return resp.HcpOpenShiftCluster, nil
+	return resp.NodePool, nil
 }
 
-// List returns all HcpOpenShiftClusters.
-func (ac *azureClient) List(ctx context.Context, resourceGroupName string) (result []arohcp.HcpOpenShiftCluster, err error) {
-	ctx, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.azureClient.List")
+// List returns all NodePools.
+func (ac *azureClient) List(ctx context.Context, resourceGroupName string, clusterName string) (result []arohcp.NodePool, err error) {
+	ctx, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools.azureClient.List")
 	defer done()
 
-	var openShiftClusters []arohcp.HcpOpenShiftCluster
-	if resourceGroupName != "" {
-		pager := ac.hcpopenshiftcluster.NewListByResourceGroupPager(resourceGroupName, nil)
-		for pager.More() {
-			nextResult, err := pager.NextPage(ctx)
-			if err != nil {
-				return openShiftClusters, errors.Wrap(err, "could not iterate HcpOpenShiftClusters by resourceGroupName")
-			}
-			for _, natRule := range nextResult.Value {
-				openShiftClusters = append(openShiftClusters, *natRule)
-			}
+	var nodePools []arohcp.NodePool
+	pager := ac.hcpopenshiftnodepool.NewListByParentPager(resourceGroupName, clusterName, nil)
+	for pager.More() {
+		nextResult, err := pager.NextPage(ctx)
+		if err != nil {
+			return nodePools, errors.Wrap(err, "could not iterate hcpopenshiftnodepools by resourceGroupName")
 		}
-	} else {
-		pager := ac.hcpopenshiftcluster.NewListBySubscriptionPager(nil)
-		for pager.More() {
-			nextResult, err := pager.NextPage(ctx)
-			if err != nil {
-				return openShiftClusters, errors.Wrap(err, "could not iterate HcpOpenShiftClusters by subscription")
-			}
-			for _, natRule := range nextResult.Value {
-				openShiftClusters = append(openShiftClusters, *natRule)
-			}
+		for _, natRule := range nextResult.Value {
+			nodePools = append(nodePools, *natRule)
 		}
 	}
 
-	return openShiftClusters, nil
+	return nodePools, nil
 }
 
-// CreateOrUpdateAsync creates or updates an HcpOpenShiftCluster asynchronously.
+// CreateOrUpdateAsync creates or updates a NodePool asynchronously.
 // It sends a PUT request to Azure and if accepted without error, the func will return a Poller which can be used to track the ongoing
 // progress of the operation.
-func (ac *azureClient) CreateOrUpdateAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string, parameters interface{}) (result interface{}, poller *runtime.Poller[arohcp.HcpOpenShiftClustersClientCreateOrUpdateResponse], err error) {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.azureClient.CreateOrUpdateAsync")
+func (ac *azureClient) CreateOrUpdateAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string, parameters interface{}) (result interface{}, poller *runtime.Poller[arohcp.NodePoolsClientCreateOrUpdateResponse], err error) {
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools.azureClient.CreateOrUpdateAsync")
 	defer done()
 
-	hcpOpenShiftCluster, ok := parameters.(arohcp.HcpOpenShiftCluster)
+	nodePool, ok := parameters.(arohcp.NodePool)
 	if !ok && parameters != nil {
-		return nil, nil, errors.Errorf("%T is not an arohcp.HcpOpenShiftCluster", parameters)
+		return nil, nil, errors.Errorf("%T is not an arohcp.NodePool", parameters)
 	}
 
-	opts := &arohcp.HcpOpenShiftClustersClientBeginCreateOrUpdateOptions{ResumeToken: resumeToken}
+	opts := &arohcp.NodePoolsClientBeginCreateOrUpdateOptions{ResumeToken: resumeToken}
 	log.V(4).Info("sending request", "resumeToken", resumeToken)
-	poller, err = ac.hcpopenshiftcluster.BeginCreateOrUpdate(ctx, spec.ResourceGroupName(), spec.ResourceName(), hcpOpenShiftCluster, opts)
+	poller, err = ac.hcpopenshiftnodepool.BeginCreateOrUpdate(ctx, spec.ResourceGroupName(), spec.OwnerResourceName(), spec.ResourceName(), nodePool, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -163,19 +149,19 @@ func (ac *azureClient) CreateOrUpdateAsync(ctx context.Context, spec azure.Resou
 	}
 
 	// if the operation completed, return a nil poller
-	return resp.HcpOpenShiftCluster, nil, err
+	return resp.NodePool, nil, err
 }
 
-// DeleteAsync deletes a AROCluster asynchronously. DeleteAsync sends a DELETE
+// DeleteAsync deletes a NodePool asynchronously. DeleteAsync sends a DELETE
 // request to Azure and if accepted without error, the func will return a Poller which can be used to track the ongoing
 // progress of the operation.
-func (ac *azureClient) DeleteAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string) (poller *runtime.Poller[arohcp.HcpOpenShiftClustersClientDeleteResponse], err error) {
+func (ac *azureClient) DeleteAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string) (poller *runtime.Poller[arohcp.NodePoolsClientDeleteResponse], err error) {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "aro.azureClient.DeleteAsync")
 	defer done()
 
-	opts := &arohcp.HcpOpenShiftClustersClientBeginDeleteOptions{ResumeToken: resumeToken}
+	opts := &arohcp.NodePoolsClientBeginDeleteOptions{ResumeToken: resumeToken}
 	log.V(4).Info("sending request", "resumeToken", resumeToken)
-	poller, err = ac.hcpopenshiftcluster.BeginDelete(ctx, spec.ResourceGroupName(), spec.ResourceName(), opts)
+	poller, err = ac.hcpopenshiftnodepool.BeginDelete(ctx, spec.ResourceGroupName(), spec.OwnerResourceName(), spec.ResourceName(), opts)
 	if err != nil {
 		return nil, err
 	}

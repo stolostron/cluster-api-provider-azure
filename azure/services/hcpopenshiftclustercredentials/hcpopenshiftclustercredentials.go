@@ -113,10 +113,10 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	return err
 }
 
-// updateScopeState updates the scope's hcpOpenShiftCluster state and provider ID
+// updateScopeState updates the scope's hcpOpenShiftClusterAdminCredential state and provider ID
 //
 // Code later in the reconciler uses scope's hcpOpenShiftCluster state for determining HcpOpenShiftCluster status and whether to create/delete
-// AzureMachinePoolMachines.
+// HcpOpenShiftClusterAdminCredential.
 func (s *Service) updateScopeState(ctx context.Context, result interface{}, hcpOpenShiftClusterSpecs *HcpOpenShiftClusterCredentialsSpec) error {
 	hcpOpenShiftClusterAdminCredential, ok := result.(arohcp.HcpOpenShiftClusterAdminCredential)
 	if !ok {

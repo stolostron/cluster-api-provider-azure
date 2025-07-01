@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 )
 
 // HcpOpenShiftClustersSpec defines the specification for a HcpOpenShiftCluster.
@@ -37,7 +38,7 @@ type HcpOpenShiftClustersSpec struct {
 	OutboundType           string
 	Network                *cplane.NetworkSpec
 	Version                string
-	ChannelGroup           cplane.ChannelGroupType
+	ChannelGroup           v1beta2.ChannelGroupType
 	Visibility             string
 }
 

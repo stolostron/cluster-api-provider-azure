@@ -26,3 +26,16 @@ const (
 	HcpOpenShiftClustersReadyCondition clusterv1.ConditionType = "HcpOpenShiftClusterReady"
 )
 
+// ChannelGroupType specifies the OpenShift version channel group.
+type ChannelGroupType string
+
+const (
+	// Stable channel group is the default channel group for stable releases.
+	Stable ChannelGroupType = "stable"
+
+	// Candidate channel group is for testing candidate builds.
+	Candidate ChannelGroupType = "candidate"
+
+	// Nightly channel group is for testing nigtly builds.
+	Nightly ChannelGroupType = "nightly"
+)
