@@ -73,6 +73,11 @@ type AROMachinePoolSpec struct {
 	// required if Replicas is not configured
 	// +optional
 	Autoscaling *AROMachinePoolAutoScaling `json:"autoscaling,omitempty"`
+
+	// providerIDList are the identification IDs of machine instances provided by the provider.
+	// This field must match the provider IDs as seen on the node objects corresponding to a machine pool's machine instances.
+	// +optional
+	ProviderIDList []string `json:"providerIDList,omitempty"` // TODO: mveber - added
 }
 
 // AROPlatformProfileMachinePool represents the Azure platform configuration.

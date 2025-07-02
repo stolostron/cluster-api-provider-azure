@@ -18,7 +18,6 @@ package v1beta2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
@@ -42,12 +41,19 @@ type AROClusterStatus struct {
 	// Conditions define the current service state of the AROCluster.
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
 
-	// TODO: mveber - added
-
-	// LongRunningOperationStates saves the state for ARO long-running operations so they can be continued on the
-	// next reconciliation loop.
+	// initialization provides observations of the AROCluster initialization process.
+	// NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Machine provisioning.
 	// +optional
-	LongRunningOperationStates infrav1.Futures `json:"longRunningOperationStates,omitempty"`
+	Initialization *AROClusterInitializationStatus `json:"initialization,omitempty"` // TODO: mvwbwe - Mohames's proposal is for v1beta1
+}
+
+// AROClusterInitializationStatus provides observations of the AROCluster initialization process.
+type AROClusterInitializationStatus struct {
+	// provision is true when the AROCluster provider reports that the infra cluster is provisioned;
+	// A infra cluster is considered provisioned when it has valid endpoint.
+	// NOTE: this field is part of the Cluster API contract, and it is used to orchestrate initial Machine provisioning.
+	// +optional
+	Provisioned bool `json:"provisioned,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -56,6 +62,7 @@ type AROClusterStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels.cluster\\.x-k8s\\.io/cluster-name",description="Cluster to which this AroManagedControl belongs"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.ready",description="Control plane infrastructure is ready for worker nodes"
+// +kubebuilder:printcolumn:name="Provisioned",type="boolean",JSONPath=".status.initialization.provisioned",description="Control plane infrastructure is provisioned"
 // +kubebuilder:printcolumn:name="Endpoint",type="string",JSONPath=".spec.controlPlaneEndpoint.host",description="API Endpoint",priority=1
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=aroclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=aroclusters/status,verbs=get;update;patch
@@ -70,24 +77,12 @@ type AROCluster struct {
 	Status AROClusterStatus `json:"status,omitempty"`
 }
 
-// TODO: mveber - added
 func (ac *AROCluster) GetConditions() clusterv1.Conditions {
 	return ac.Status.Conditions
 }
 
-// TODO: mveber - added
 func (ac *AROCluster) SetConditions(conditions clusterv1.Conditions) {
 	ac.Status.Conditions = conditions
-}
-
-// TODO: mveber - added
-func (ac *AROCluster) GetFutures() infrav1.Futures {
-	return ac.Status.LongRunningOperationStates
-}
-
-// TODO: mveber - added
-func (ac *AROCluster) SetFutures(futures infrav1.Futures) {
-	ac.Status.LongRunningOperationStates = futures
 }
 
 const (
