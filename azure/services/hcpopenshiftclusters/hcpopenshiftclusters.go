@@ -95,13 +95,6 @@ func (s *Service) Reconcile(ctx context.Context) error {
 
 	result, err := s.Client.Get(ctx, spec)
 	if err == nil {
-		//TODO: mveber - remove// We can only get the existing instances if the hcpOpenShiftCluster already exists
-		//                     hcpOpenShiftClusterSpecs.hcpOpenShiftClusterInstances, err = s.Client.ListInstances(ctx, spec.ResourceGroupName(), spec.ResourceName())
-		//                     if err != nil {
-		//                     	err = errors.Wrapf(err, "failed to get existing hcpOpenShiftCluster instances")
-		//                     	s.Scope.UpdatePutStatus(infrav1.BootstrapSucceededCondition, serviceName, err)
-		//                     	return err
-		//                     }
 		if result != nil {
 			if err := s.updateScopeState(ctx, result, hcpOpenShiftClusterSpecs); err != nil {
 				return err
@@ -136,20 +129,6 @@ func (s *Service) updateScopeState(ctx context.Context, result interface{}, hcpO
 	s.Scope.SetStatusVersion(hcpOpenShiftCluster.Properties.Version)
 	s.Scope.SetApiUrl(hcpOpenShiftCluster.Properties.API.URL, hcpOpenShiftCluster.Properties.API.Visibility)
 
-	/* TODO: mveber - remove
-	fetchedhcpOpenShiftCluster := converters.SDKTohcpOpenShiftCluster(vmss, hcpOpenShiftClusterSpecs.hcpOpenShiftClusterInstances)
-	if err := s.Scope.ReconcileReplicas(ctx, &fetchedhcpOpenShiftCluster); err != nil {
-		return errors.Wrap(err, "unable to reconcile hcpOpenShiftCluster replicas")
-	}
-
-	// Transform the hcpOpenShiftCluster resource representation to conform to the cloud-provider-azure representation
-	providerID, err := azprovider.ConvertResourceGroupNameToLower(azureutil.ProviderIDPrefix + fetchedhcpOpenShiftCluster.ID)
-	if err != nil {
-		return errors.Wrapf(err, "failed to parse hcpOpenShiftCluster ID %s", fetchedhcpOpenShiftCluster.ID)
-	}
-	s.Scope.SetProviderID(providerID)
-	s.Scope.SethcpOpenShiftClusterState(&fetchedhcpOpenShiftCluster)
-	*/
 	return nil
 }
 

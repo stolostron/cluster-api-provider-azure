@@ -117,14 +117,14 @@ func (s *HcpOpenShiftNodePoolSpec) getLabels() []*arohcp.Label {
 
 // Parameters returns the parameters for the NodePool.
 func (s *HcpOpenShiftNodePoolSpec) Parameters(_ context.Context, existing interface{}) (params interface{}, err error) {
+	var existingNodePool *arohcp.NodePool
 	if existing != nil {
-		existingNodePool, ok := existing.(arohcp.NodePool)
+		nodePool, ok := existing.(arohcp.NodePool)
 		if !ok {
 			return nil, errors.Errorf("%T is not a arohcp.NodePool", existing)
 		}
 		// NodePool already exists
-		_ = existingNodePool
-		return nil, nil // TODO mveber - update
+		existingNodePool = &nodePool
 	}
 
 	diskStorageAccountType, err := s.getDiskStorageAccountType()
@@ -143,7 +143,7 @@ func (s *HcpOpenShiftNodePoolSpec) Parameters(_ context.Context, existing interf
 		replicas = nil
 	}
 
-	return arohcp.NodePool{
+	ret := arohcp.NodePool{
 		Location: ptr.To(s.Location),
 		//Identity: &arohcp.ManagedServiceIdentity{
 		//	Type:                   nil,
@@ -177,5 +177,116 @@ func (s *HcpOpenShiftNodePoolSpec) Parameters(_ context.Context, existing interf
 		//   Name: nil,
 		//   SystemData: &arohcp.SystemData{},
 		//   Type: nil,
-	}, nil
+	}
+	if existingNodePool != nil {
+		ret.ID = existingNodePool.ID
+		changed := false
+		//		if existingNodePool.Location == nil || *ret.Location != *existingNodePool.Location {
+		//			changed = true
+		//		}
+		if existingNodePool.Properties == nil {
+			changed = true
+		} else {
+			if existingNodePool.Properties.Platform == nil {
+				changed = true
+			} else {
+				if cmpPtr(existingNodePool.Properties.Platform.VMSize, ret.Properties.Platform.VMSize) {
+					changed = true
+				}
+				if cmpPtr(existingNodePool.Properties.Platform.AvailabilityZone, ret.Properties.Platform.AvailabilityZone) {
+					changed = true
+				}
+				if cmpPtr(existingNodePool.Properties.Platform.DiskSizeGiB, ret.Properties.Platform.DiskSizeGiB) {
+					changed = true
+				}
+				if cmpPtr(existingNodePool.Properties.Platform.DiskStorageAccountType, ret.Properties.Platform.DiskStorageAccountType) {
+					changed = true
+				}
+				if cmpPtr(existingNodePool.Properties.Platform.SubnetID, ret.Properties.Platform.SubnetID) {
+					changed = true
+				}
+			}
+			if cmpPtr(existingNodePool.Properties.AutoRepair, ret.Properties.AutoRepair) {
+				changed = true
+			}
+			if (existingNodePool.Properties.AutoScaling == nil) != (ret.Properties.AutoScaling == nil) {
+				changed = true
+			} else if (existingNodePool.Properties.AutoScaling != nil) && (ret.Properties.AutoScaling != nil) {
+				if cmpPtr(existingNodePool.Properties.AutoScaling.Min, ret.Properties.AutoScaling.Min) {
+					changed = true
+				}
+				if cmpPtr(existingNodePool.Properties.AutoScaling.Max, ret.Properties.AutoScaling.Max) {
+					changed = true
+				}
+			}
+			if cmpArray(existingNodePool.Properties.Labels, ret.Properties.Labels) {
+				changed = true
+			}
+			if cmpPtr(existingNodePool.Properties.Replicas, ret.Properties.Replicas) {
+				changed = true
+			}
+			if cmpArray(existingNodePool.Properties.Taints, ret.Properties.Taints) {
+				changed = true
+			}
+			if existingNodePool.Properties.Version == nil {
+				changed = true
+			} else {
+				if cmpPtr(existingNodePool.Properties.Version.ID, ret.Properties.Version.ID) {
+					changed = true
+				}
+				if cmpPtr(existingNodePool.Properties.Version.ChannelGroup, ret.Properties.Version.ChannelGroup) {
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			return nil, nil
+		}
+	}
+	return ret, nil
+}
+
+func cmpArray[T arohcp.Taint | arohcp.Label](a1 []*T, a2 []*T) bool {
+	if len(a1) != len(a2) {
+		return true
+	}
+	if len(a1) > 0 {
+		for _, l1 := range a1 {
+			c1 := false
+			for _, l2 := range a2 {
+				if !cmpPtr(l1, l2) {
+					c1 = true
+					break
+				}
+			}
+			if !c1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func cmpPtr[V string | bool | int32 | arohcp.DiskStorageAccountType | arohcp.Taint | arohcp.Effect | arohcp.Label](s1 *V, s2 *V) bool {
+	if (s1 == nil) != (s2 == nil) {
+		return true
+	}
+	if (s1 != nil) && (s2 != nil) {
+		switch t1 := any(s1).(type) {
+		case arohcp.Label:
+			switch t2 := any(s2).(type) {
+			case arohcp.Label:
+				return cmpPtr(t1.Key, t2.Key) || cmpPtr(t1.Value, t2.Value)
+			}
+		case arohcp.Taint:
+			switch t2 := any(s2).(type) {
+			case arohcp.Taint:
+				return cmpPtr(t1.Key, t2.Key) || cmpPtr(t1.Value, t2.Value) || cmpPtr(t1.Effect, t2.Effect)
+			}
+		}
+		if *s1 != *s2 {
+			return true
+		}
+	}
+	return false
 }

@@ -90,13 +90,6 @@ func (s *Service) Reconcile(ctx context.Context) error {
 
 	result, err := s.Client.Get(ctx, spec)
 	if err == nil {
-		//TODO: mveber - remove// We can only get the existing instances if the hcpOpenShiftCluster already exists
-		//                     nodePoolSpecs.hcpOpenShiftClusterInstances, err = s.Client.ListInstances(ctx, spec.ResourceGroupName(), spec.ResourceName())
-		//                     if err != nil {
-		//                     	err = errors.Wrapf(err, "failed to get existing hcpOpenShiftCluster instances")
-		//                     	s.Scope.UpdatePutStatus(infrav1.BootstrapSucceededCondition, serviceName, err)
-		//                     	return err
-		//                     }
 		if result != nil {
 			if err := s.updateScopeState(ctx, result, nodePoolSpecs); err != nil {
 				return err

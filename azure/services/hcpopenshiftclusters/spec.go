@@ -113,7 +113,7 @@ func (s *HcpOpenShiftClustersSpec) getTags() map[string]*string {
 
 // getManagedResourceGroup - returns manager resource group name
 func (s *HcpOpenShiftClustersSpec) getManagedResourceGroup() *string {
-	managedResourceGroup := fmt.Sprintf("__capz_aro_managed_%s_rg", s.Name)
+	managedResourceGroup := fmt.Sprintf("capz_aro_managed_%s_rg", s.Name)
 	return &managedResourceGroup
 }
 
@@ -154,14 +154,13 @@ func (s *HcpOpenShiftClustersSpec) getVisibility() (*arohcp.Visibility, error) {
 
 // Parameters returns the parameters for the HcpOpenShiftCluster.
 func (s *HcpOpenShiftClustersSpec) Parameters(_ context.Context, existing interface{}) (params interface{}, err error) {
+	var existingHcpOpenShiftCluster *arohcp.HcpOpenShiftCluster
 	if existing != nil {
-		existingHcpOpenShiftCluster, ok := existing.(arohcp.HcpOpenShiftCluster)
+		hcpOpenShiftCluster, ok := existing.(arohcp.HcpOpenShiftCluster)
 		if !ok {
 			return nil, errors.Errorf("%T is not a arohcp.HcpOpenShiftCluster", existing)
 		}
-		// HcpOpenShiftCluster group already exists
-		_ = existingHcpOpenShiftCluster
-		return nil, nil // TODO mveber - update
+		existingHcpOpenShiftCluster = &hcpOpenShiftCluster
 	}
 
 	userAssignedIdentities, managedServiceIdentity := s.getManagedIdentities()
@@ -180,7 +179,7 @@ func (s *HcpOpenShiftClustersSpec) Parameters(_ context.Context, existing interf
 		return nil, errV
 	}
 
-	return arohcp.HcpOpenShiftCluster{
+	ret := arohcp.HcpOpenShiftCluster{
 		Location: ptr.To(s.Location),
 		Identity: managedServiceIdentity,
 		Properties: &arohcp.HcpOpenShiftClusterProperties{
@@ -200,9 +199,9 @@ func (s *HcpOpenShiftClustersSpec) Parameters(_ context.Context, existing interf
 				// BaseDomain:       nil,
 			},
 			Network: &arohcp.NetworkProfile{
+				NetworkType: networkType,
 				HostPrefix:  ptr.To(int32(s.Network.HostPrefix)),
 				MachineCidr: &s.Network.MachineCIDR,
-				NetworkType: networkType,
 				PodCidr:     &s.Network.PodCIDR,
 				ServiceCidr: &s.Network.ServiceCIDR,
 			},
@@ -223,5 +222,112 @@ func (s *HcpOpenShiftClustersSpec) Parameters(_ context.Context, existing interf
 		Name: &s.Name,
 		// SystemData: &arohcp.SystemData{},
 		// Type: nil,
-	}, nil
+	}
+	if existingHcpOpenShiftCluster != nil {
+		ret.ID = existingHcpOpenShiftCluster.ID
+		changed := false
+		//		if existingHcpOpenShiftCluster.Location == nil || *ret.Location != *existingHcpOpenShiftCluster.Location {
+		//			changed = true
+		//		}
+		if existingHcpOpenShiftCluster.Properties == nil {
+			changed = true
+		} else {
+			if existingHcpOpenShiftCluster.Properties.Platform == nil {
+				changed = true
+			} else {
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Platform.NetworkSecurityGroupID, ret.Properties.Platform.NetworkSecurityGroupID) {
+					return nil, errors.Errorf("The networkSecurityGroupId is immutable and cannot be changed")
+				}
+				if cmpOperatorsAuthentication(existingHcpOpenShiftCluster.Properties.Platform.OperatorsAuthentication, ret.Properties.Platform.OperatorsAuthentication) {
+					changed = true
+				}
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Platform.SubnetID, ret.Properties.Platform.SubnetID) {
+					changed = true
+				}
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Platform.ManagedResourceGroup, ret.Properties.Platform.ManagedResourceGroup) {
+					return nil, errors.Errorf("The managedResourceGroup is immutable and cannot be changed")
+				}
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Platform.OutboundType, ret.Properties.Platform.OutboundType) {
+					changed = true
+				}
+			}
+			if existingHcpOpenShiftCluster.Properties.Network == nil {
+				changed = true
+			} else {
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Network.NetworkType, ret.Properties.Network.NetworkType) {
+					changed = true
+				}
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Network.HostPrefix, ret.Properties.Network.HostPrefix) {
+					changed = true
+				}
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Network.MachineCidr, ret.Properties.Network.MachineCidr) {
+					changed = true
+				}
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Network.PodCidr, ret.Properties.Network.PodCidr) {
+					changed = true
+				}
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Network.ServiceCidr, ret.Properties.Network.ServiceCidr) {
+					changed = true
+				}
+			}
+			if existingHcpOpenShiftCluster.Properties.Version == nil {
+				changed = true
+			} else {
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Version.ChannelGroup, ret.Properties.Version.ChannelGroup) {
+					changed = true
+				}
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.Version.ID, ret.Properties.Version.ID) {
+					changed = true
+				}
+			}
+			if existingHcpOpenShiftCluster.Properties.API == nil {
+				changed = true
+			} else {
+				if cmpPtr(existingHcpOpenShiftCluster.Properties.API.Visibility, ret.Properties.API.Visibility) {
+					changed = true
+				}
+			}
+			if cmpMap(existingHcpOpenShiftCluster.Tags, ret.Tags) {
+				changed = true
+			}
+		}
+		if !changed {
+			return nil, nil
+		}
+	}
+	return ret, nil
+}
+
+func cmpMap(m1 map[string]*string, m2 map[string]*string) bool {
+	if len(m1) != len(m2) {
+		return true
+	}
+	if len(m1) > 0 {
+		for k, v := range m1 {
+			if cmpPtr(m2[k], v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func cmpOperatorsAuthentication(a1 *arohcp.OperatorsAuthenticationProfile, a2 *arohcp.OperatorsAuthenticationProfile) bool {
+	j1, _ := a1.MarshalJSON()
+	j2, _ := a2.MarshalJSON()
+	s1 := string(j1)
+	s2 := string(j2)
+	return s1 != s2
+}
+
+func cmpPtr[V string | bool | int32 | arohcp.OutboundType | arohcp.NetworkType | arohcp.Visibility](s1 *V, s2 *V) bool {
+	if (s1 == nil) != (s2 == nil) {
+		return true
+	}
+	if (s1 != nil) && (s2 != nil) {
+		if *s1 != *s2 {
+			return true
+		}
+	}
+	return false
 }

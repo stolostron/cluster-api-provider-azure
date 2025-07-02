@@ -130,6 +130,8 @@ func (s *Service) updateScopeState(ctx context.Context, result interface{}, hcpO
 // Delete deletes a HcpOpenShiftCluster asynchronously. Delete sends a DELETE request to Azure and if accepted without error,
 // The actual delete in Azure may take longer, but should eventually complete.
 func (s *Service) Delete(ctx context.Context) error {
+	return nil
+	/* TODO: mveber - we don't need to revoke credentials before cluster's delete
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.Delete")
 	defer done()
 
@@ -154,6 +156,7 @@ func (s *Service) Delete(ctx context.Context) error {
 	}
 	s.Scope.UpdateDeleteStatus(infrav1.BootstrapSucceededCondition, serviceName, result)
 	return result
+	*/
 }
 
 func (s *Service) validateSpec(ctx context.Context) error {

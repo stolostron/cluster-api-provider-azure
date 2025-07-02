@@ -248,14 +248,34 @@ func (s *AROControlPlaneScope) HcpOpenShiftClusterCredentialsSpecs(ctx context.C
 }
 
 func (s *AROControlPlaneScope) HasValidKubeconfig(ctx context.Context) bool {
-	hasValidKubeconfig := true
 	obj := s.MakeEmptyKubeConfigSecret()
 	key := client.ObjectKeyFromObject(&obj)
 	if err := s.Client.Get(ctx, key, &obj); err != nil {
 		// eny error includes not found
-		hasValidKubeconfig = false
+		return false
 	}
-	return hasValidKubeconfig
+
+	remoteClient, err := remote.NewClusterClient(ctx, managedControlPlaneScopeName, s.Client, types.NamespacedName{
+		Namespace: s.Cluster.Namespace,
+		Name:      s.Cluster.Name,
+	})
+	if err != nil {
+		return false
+	}
+
+	// kube-public configmap kube-root-ca.crt
+	obj2 := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kube-root-ca.crt",
+			Namespace: metav1.NamespacePublic,
+		},
+	}
+	key2 := client.ObjectKeyFromObject(obj2)
+	if err := remoteClient.Get(ctx, key2, obj2); err != nil {
+		return false
+	}
+
+	return true
 }
 
 // AROControlPlaneCache stores AROControlPlaneCache data locally so we don't have to hit the API multiple times within the same reconcile loop.
