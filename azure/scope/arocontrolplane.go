@@ -18,7 +18,10 @@ package scope
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	asonetworkv1api20201101 "github.com/Azure/azure-service-operator/v2/api/network/v1api20201101"
+	asoresourcesv1 "github.com/Azure/azure-service-operator/v2/api/resources/v1api20200601"
 	arohcp "github.com/marek-veber/ARO-HCP/external/api/v20240610preview/generated"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
@@ -27,10 +30,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	bootstrapapi "k8s.io/cluster-bootstrap/token/api"
+	"k8s.io/utils/ptr"
+	"regexp"
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/groups"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclustercredentials"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclusters"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/securitygroups"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/subnets"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/virtualnetworks"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/util/futures"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
@@ -92,7 +101,7 @@ func NewAROControlPlaneScope(ctx context.Context, params AROControlPlaneScopePar
 		return nil, errors.Errorf("failed to init patch helper: %v", err)
 	}
 
-	return &AROControlPlaneScope{
+	scope := &AROControlPlaneScope{
 		Client:          params.Client,
 		AzureClients:    params.AzureClients,
 		Cluster:         params.Cluster,
@@ -100,7 +109,10 @@ func NewAROControlPlaneScope(ctx context.Context, params AROControlPlaneScopePar
 		patchHelper:     helper,
 		cache:           params.Cache,
 		AsyncReconciler: params.Timeouts,
-	}, nil
+	}
+	scope.initNetworkSpec()
+
+	return scope, nil
 }
 
 // AROControlPlaneScope defines the basic context for an actuator to operate upon.
@@ -113,6 +125,8 @@ type AROControlPlaneScope struct {
 	Cluster              *clusterv1.Cluster
 	ControlPlane         *cplane.AROControlPlane
 	ControlPlaneEndpoint clusterv1.APIEndpoint
+
+	NetworkSpec *infrav1.NetworkSpec
 
 	Kubeconfig                   *string
 	KubeonfigExpirationTimestamp *time.Time
@@ -405,1071 +419,288 @@ func (s *AROControlPlaneScope) StoreClusterInfo(ctx context.Context, caData []by
 	return nil
 }
 
-/*
-   // ASOOwner implements aso.Scope.
-   func (s *AROControlPlaneScope) ASOOwner() client.Object {
-   	return s.ControlPlane
-   }
-
-   // PublicIPSpecs returns the public IP specs.
-   func (s *AROControlPlaneScope) PublicIPSpecs() []azure.ResourceSpecGetter {
-   	var publicIPSpecs []azure.ResourceSpecGetter
-
-   	// Public IP specs for control plane lb
-   	var controlPlaneOutboundIPSpecs []azure.ResourceSpecGetter
-   	if s.IsAPIServerPrivate() {
-   		// Public IP specs for control plane outbound lb
-   		if s.ControlPlaneOutboundLB() != nil {
-   			for _, ip := range s.ControlPlaneOutboundLB().FrontendIPs {
-   				controlPlaneOutboundIPSpecs = append(controlPlaneOutboundIPSpecs, &publicips.PublicIPSpec{
-   					Name:             ip.PublicIP.Name,
-   					ResourceGroup:    s.ResourceGroup(),
-   					ClusterName:      s.ClusterName(),
-   					DNSName:          "",    // Set to default value
-   					IsIPv6:           false, // Set to default value
-   					Location:         s.Location(),
-   					ExtendedLocation: s.ExtendedLocation(),
-   					FailureDomains:   s.FailureDomains(),
-   					AdditionalTags:   s.AdditionalTags(),
-   				})
-   			}
-   		}
-   	} else {
-   		if s.ControlPlaneEnabled() {
-   			controlPlaneOutboundIPSpecs = []azure.ResourceSpecGetter{
-   				&publicips.PublicIPSpec{
-   					Name:             s.APIServerPublicIP().Name,
-   					ResourceGroup:    s.ResourceGroup(),
-   					DNSName:          s.APIServerPublicIP().DNSName,
-   					IsIPv6:           false, // Currently azure requires an IPv4 lb rule to enable IPv6
-   					ClusterName:      s.ClusterName(),
-   					Location:         s.Location(),
-   					ExtendedLocation: s.ExtendedLocation(),
-   					FailureDomains:   s.FailureDomains(),
-   					AdditionalTags:   s.AdditionalTags(),
-   					IPTags:           s.APIServerPublicIP().IPTags,
-   				},
-   			}
-   		}
-   	}
-   	publicIPSpecs = append(publicIPSpecs, controlPlaneOutboundIPSpecs...)
-
-   	// Public IP specs for node outbound lb
-   	if s.NodeOutboundLB() != nil {
-   		for _, ip := range s.NodeOutboundLB().FrontendIPs {
-   			publicIPSpecs = append(publicIPSpecs, &publicips.PublicIPSpec{
-   				Name:             ip.PublicIP.Name,
-   				ResourceGroup:    s.ResourceGroup(),
-   				ClusterName:      s.ClusterName(),
-   				DNSName:          "",    // Set to default value
-   				IsIPv6:           false, // Set to default value
-   				Location:         s.Location(),
-   				ExtendedLocation: s.ExtendedLocation(),
-   				FailureDomains:   s.FailureDomains(),
-   				AdditionalTags:   s.AdditionalTags(),
-   			})
-   		}
-   	}
-
-   	// Public IP specs for node NAT gateways
-   	var nodeNatGatewayIPSpecs []azure.ResourceSpecGetter
-   	for _, subnet := range s.NodeSubnets() {
-   		if subnet.IsNatGatewayEnabled() {
-   			nodeNatGatewayIPSpecs = append(nodeNatGatewayIPSpecs, &publicips.PublicIPSpec{
-   				Name:           subnet.NatGateway.NatGatewayIP.Name,
-   				ResourceGroup:  s.ResourceGroup(),
-   				DNSName:        subnet.NatGateway.NatGatewayIP.DNSName,
-   				IsIPv6:         false, // Public IP is IPv4 by default
-   				ClusterName:    s.ClusterName(),
-   				Location:       s.Location(),
-   				FailureDomains: s.FailureDomains(),
-   				AdditionalTags: s.AdditionalTags(),
-   				IPTags:         subnet.NatGateway.NatGatewayIP.IPTags,
-   			})
-   		}
-   		publicIPSpecs = append(publicIPSpecs, nodeNatGatewayIPSpecs...)
-   	}
-
-   	if azureBastion := s.AzureBastion(); azureBastion != nil {
-   		// public IP for Azure Bastion.
-   		azureBastionPublicIP := &publicips.PublicIPSpec{
-   			Name:           azureBastion.PublicIP.Name,
-   			ResourceGroup:  s.ResourceGroup(),
-   			DNSName:        azureBastion.PublicIP.DNSName,
-   			IsIPv6:         false, // Public IP is IPv4 by default
-   			ClusterName:    s.ClusterName(),
-   			Location:       s.Location(),
-   			FailureDomains: s.FailureDomains(),
-   			AdditionalTags: s.AdditionalTags(),
-   			IPTags:         azureBastion.PublicIP.IPTags,
-   		}
-   		publicIPSpecs = append(publicIPSpecs, azureBastionPublicIP)
-   	}
-
-   	return publicIPSpecs
-   }
-
-   // LBSpecs returns the load balancer specs.
-   func (s *AROControlPlaneScope) LBSpecs() []azure.ResourceSpecGetter {
-   	var specs []azure.ResourceSpecGetter
-   	if s.ControlPlaneEnabled() {
-   		frontendLB := &loadbalancers.LBSpec{
-   			// API Server LB
-   			Name:                 s.APIServerLB().Name,
-   			ResourceGroup:        s.ResourceGroup(),
-   			SubscriptionID:       s.SubscriptionID(),
-   			ClusterName:          s.ClusterName(),
-   			Location:             s.Location(),
-   			ExtendedLocation:     s.ExtendedLocation(),
-   			VNetName:             s.Vnet().Name,
-   			VNetResourceGroup:    s.Vnet().ResourceGroup,
-   			SubnetName:           s.ControlPlaneSubnet().Name,
-   			APIServerPort:        s.APIServerPort(),
-   			Type:                 s.APIServerLB().Type,
-   			SKU:                  s.APIServerLB().SKU,
-   			Role:                 infrav1.APIServerRole,
-   			BackendPoolName:      s.APIServerLB().BackendPool.Name,
-   			IdleTimeoutInMinutes: s.APIServerLB().IdleTimeoutInMinutes,
-   			AdditionalTags:       s.AdditionalTags(),
-   			AdditionalPorts:      s.AdditionalAPIServerLBPorts(),
-   		}
-
-   		if s.APIServerLB().FrontendIPs != nil {
-   			for _, frontendIP := range s.APIServerLB().FrontendIPs {
-   				// save the public IP for the frontend LB
-   				// or if the LB is of the type internal, save the only IP allowed for the frontend LB
-   				if frontendIP.PublicIP != nil || frontendLB.Type == infrav1.Internal {
-   					frontendLB.FrontendIPConfigs = []infrav1.FrontendIP{frontendIP}
-   					break
-   				}
-   			}
-   		}
-   		specs = append(specs, frontendLB)
-   	}
-
-   	if s.APIServerLB().Type != infrav1.Internal && feature.Gates.Enabled(feature.APIServerILB) {
-   		internalLB := &loadbalancers.LBSpec{
-   			Name:                 s.APIServerLB().Name + "-internal",
-   			ResourceGroup:        s.ResourceGroup(),
-   			SubscriptionID:       s.SubscriptionID(),
-   			ClusterName:          s.ClusterName(),
-   			Location:             s.Location(),
-   			ExtendedLocation:     s.ExtendedLocation(),
-   			VNetName:             s.Vnet().Name,
-   			VNetResourceGroup:    s.Vnet().ResourceGroup,
-   			SubnetName:           s.ControlPlaneSubnet().Name,
-   			APIServerPort:        s.APIServerPort(),
-   			Type:                 infrav1.Internal,
-   			SKU:                  s.APIServerLB().SKU,
-   			Role:                 infrav1.APIServerRoleInternal,
-   			BackendPoolName:      s.APIServerLB().BackendPool.Name + "-internal",
-   			IdleTimeoutInMinutes: s.APIServerLB().IdleTimeoutInMinutes,
-   			AdditionalTags:       s.AdditionalTags(),
-   			AdditionalPorts:      s.AdditionalAPIServerLBPorts(),
-   		}
-
-   		privateIPFound := false
-   		if s.APIServerLB().FrontendIPs != nil {
-   			for _, frontendIP := range s.APIServerLB().FrontendIPs {
-   				if frontendIP.PrivateIPAddress != "" {
-   					internalLB.FrontendIPConfigs = []infrav1.FrontendIP{frontendIP}
-   					privateIPFound = true
-   					break
-   				}
-   			}
-   		}
-
-   		if !privateIPFound {
-   			// If no private IP is found, use the default internal LB IP
-   			// useful for scenarios where the user has not specified a private IP and is upgrading from a version that did not support it
-   			// TODO: Update the underlying infra prekubeadm command with the new internal IP and trigger a reconcile. https://github.com/kubernetes-sigs/cluster-api-provider-azure/issues/5334
-   			internalLB.FrontendIPConfigs = []infrav1.FrontendIP{
-   				{
-   					Name: s.APIServerLB().Name + "-internal-ip",
-   					FrontendIPClass: infrav1.FrontendIPClass{
-   						PrivateIPAddress: infrav1.DefaultInternalLBIPAddress,
-   					},
-   				},
-   			}
-   		}
-   		specs = append(specs, internalLB)
-   	}
-
-   	// Node outbound LB
-   	if s.NodeOutboundLB() != nil {
-   		specs = append(specs, &loadbalancers.LBSpec{
-   			Name:                 s.NodeOutboundLB().Name,
-   			ResourceGroup:        s.ResourceGroup(),
-   			SubscriptionID:       s.SubscriptionID(),
-   			ClusterName:          s.ClusterName(),
-   			Location:             s.Location(),
-   			ExtendedLocation:     s.ExtendedLocation(),
-   			VNetName:             s.Vnet().Name,
-   			VNetResourceGroup:    s.Vnet().ResourceGroup,
-   			FrontendIPConfigs:    s.NodeOutboundLB().FrontendIPs,
-   			Type:                 s.NodeOutboundLB().Type,
-   			SKU:                  s.NodeOutboundLB().SKU,
-   			BackendPoolName:      s.NodeOutboundLB().BackendPool.Name,
-   			IdleTimeoutInMinutes: s.NodeOutboundLB().IdleTimeoutInMinutes,
-   			Role:                 infrav1.NodeOutboundRole,
-   			AdditionalTags:       s.AdditionalTags(),
-   		})
-   	}
-
-   	// Control Plane Outbound LB
-   	if s.ControlPlaneOutboundLB() != nil {
-   		specs = append(specs, &loadbalancers.LBSpec{
-   			Name:                 s.ControlPlaneOutboundLB().Name,
-   			ResourceGroup:        s.ResourceGroup(),
-   			SubscriptionID:       s.SubscriptionID(),
-   			ClusterName:          s.ClusterName(),
-   			Location:             s.Location(),
-   			ExtendedLocation:     s.ExtendedLocation(),
-   			VNetName:             s.Vnet().Name,
-   			VNetResourceGroup:    s.Vnet().ResourceGroup,
-   			FrontendIPConfigs:    s.ControlPlaneOutboundLB().FrontendIPs,
-   			Type:                 s.ControlPlaneOutboundLB().Type,
-   			SKU:                  s.ControlPlaneOutboundLB().SKU,
-   			BackendPoolName:      s.ControlPlaneOutboundLB().BackendPool.Name,
-   			IdleTimeoutInMinutes: s.ControlPlaneOutboundLB().IdleTimeoutInMinutes,
-   			Role:                 infrav1.ControlPlaneOutboundRole,
-   			AdditionalTags:       s.AdditionalTags(),
-   		})
-   	}
-
-   	return specs
-   }
-
-   /*
-   // RouteTableSpecs returns the subnet route tables.
-   func (s *AROControlPlaneScope) RouteTableSpecs() []azure.ResourceSpecGetter {
-   	var specs []azure.ResourceSpecGetter
-   	for _, subnet := range s.ControlPlane.Spec.NetworkSpec.Subnets {
-   		if subnet.RouteTable.Name != "" {
-   			specs = append(specs, &routetables.RouteTableSpec{
-   				Name:           subnet.RouteTable.Name,
-   				Location:       s.Location(),
-   				ResourceGroup:  s.Vnet().ResourceGroup,
-   				ClusterName:    s.ClusterName(),
-   				AdditionalTags: s.AdditionalTags(),
-   			})
-   		}
-   	}
-
-   	return specs
-   }
-
-   // NatGatewaySpecs returns the node NAT gateway.
-   func (s *AROControlPlaneScope) NatGatewaySpecs() []azure.ASOResourceSpecGetter[*asonetworkv1api20220701.NatGateway] {
-   	natGatewaySet := make(map[string]struct{})
-   	var natGateways []azure.ASOResourceSpecGetter[*asonetworkv1api20220701.NatGateway]
-
-   	// We ignore the control plane NAT gateway, as we will always use a LB to enable egress on the control plane.
-   	for _, subnet := range s.NodeSubnets() {
-   		if subnet.IsNatGatewayEnabled() {
-   			if _, ok := natGatewaySet[subnet.NatGateway.Name]; !ok {
-   				natGatewaySet[subnet.NatGateway.Name] = struct{}{} // empty struct to represent hash set
-   				natGateways = append(natGateways, &natgateways.NatGatewaySpec{
-   					Name:           subnet.NatGateway.Name,
-   					ResourceGroup:  s.ResourceGroup(),
-   					SubscriptionID: s.SubscriptionID(),
-   					Location:       s.Location(),
-   					ClusterName:    s.ClusterName(),
-   					NatGatewayIP: infrav1.PublicIPSpec{
-   						Name: subnet.NatGateway.NatGatewayIP.Name,
-   					},
-   					AdditionalTags: s.AdditionalTags(),
-   					// We need to know if the VNet is managed to decide if this NAT Gateway was-managed or not.
-   					IsVnetManaged: s.IsVnetManaged(),
-   				})
-   			}
-   		}
-   	}
-
-   	return natGateways
-   }
-
-   // NSGSpecs returns the security group specs.
-   func (s *AROControlPlaneScope) NSGSpecs() []azure.ResourceSpecGetter {
-   	nsgspecs := make([]azure.ResourceSpecGetter, len(s.ControlPlane.Spec.NetworkSpec.Subnets))
-   	for i, subnet := range s.ControlPlane.Spec.NetworkSpec.Subnets {
-   		nsgspecs[i] = &securitygroups.NSGSpec{
-   			Name:                     subnet.SecurityGroup.Name,
-   			SecurityRules:            subnet.SecurityGroup.SecurityRules,
-   			ResourceGroup:            s.Vnet().ResourceGroup,
-   			Location:                 s.Location(),
-   			ClusterName:              s.ClusterName(),
-   			AdditionalTags:           s.AdditionalTags(),
-   			LastAppliedSecurityRules: s.getLastAppliedSecurityRules(subnet.SecurityGroup.Name),
-   		}
-   	}
-
-   	return nsgspecs
-   }
-
-   // SubnetSpecs returns the subnets specs.
-   func (s *AROControlPlaneScope) SubnetSpecs() []azure.ASOResourceSpecGetter[*asonetworkv1api20201101.VirtualNetworksSubnet] {
-   	numberOfSubnets := len(s.ControlPlane.Spec.NetworkSpec.Subnets)
-   	if s.IsAzureBastionEnabled() {
-   		numberOfSubnets++
-   	}
-
-   	subnetSpecs := make([]azure.ASOResourceSpecGetter[*asonetworkv1api20201101.VirtualNetworksSubnet], 0, numberOfSubnets)
-
-   	for _, subnet := range s.ControlPlane.Spec.NetworkSpec.Subnets {
-   		subnetSpec := &subnets.SubnetSpec{
-   			Name:              subnet.Name,
-   			ResourceGroup:     s.ResourceGroup(),
-   			SubscriptionID:    s.SubscriptionID(),
-   			CIDRs:             subnet.CIDRBlocks,
-   			VNetName:          s.Vnet().Name,
-   			VNetResourceGroup: s.Vnet().ResourceGroup,
-   			IsVNetManaged:     s.IsVnetManaged(),
-   			RouteTableName:    subnet.RouteTable.Name,
-   			SecurityGroupName: subnet.SecurityGroup.Name,
-   			NatGatewayName:    subnet.NatGateway.Name,
-   			ServiceEndpoints:  subnet.ServiceEndpoints,
-   		}
-   		subnetSpecs = append(subnetSpecs, subnetSpec)
-   	}
-
-   	if s.IsAzureBastionEnabled() {
-   		azureBastionSubnet := s.ControlPlane.Spec.BastionSpec.AzureBastion.Subnet
-   		subnetSpecs = append(subnetSpecs, &subnets.SubnetSpec{
-   			Name:              azureBastionSubnet.Name,
-   			ResourceGroup:     s.ResourceGroup(),
-   			SubscriptionID:    s.SubscriptionID(),
-   			CIDRs:             azureBastionSubnet.CIDRBlocks,
-   			VNetName:          s.Vnet().Name,
-   			VNetResourceGroup: s.Vnet().ResourceGroup,
-   			IsVNetManaged:     s.IsVnetManaged(),
-   			SecurityGroupName: azureBastionSubnet.SecurityGroup.Name,
-   			RouteTableName:    azureBastionSubnet.RouteTable.Name,
-   			ServiceEndpoints:  azureBastionSubnet.ServiceEndpoints,
-   		})
-   	}
-
-   	return subnetSpecs
-   }
-
-   // GroupSpecs returns the resource group spec.
-   func (s *AROControlPlaneScope) GroupSpecs() []azure.ASOResourceSpecGetter[*asoresourcesv1.ResourceGroup] {
-   	specs := []azure.ASOResourceSpecGetter[*asoresourcesv1.ResourceGroup]{
-   		&groups.GroupSpec{
-   			Name:           s.ResourceGroup(),
-   			AzureName:      s.ResourceGroup(),
-   			Location:       s.Location(),
-   			ClusterName:    s.ClusterName(),
-   			AdditionalTags: s.AdditionalTags(),
-   		},
-   	}
-   	if s.Vnet().ResourceGroup != "" && s.Vnet().ResourceGroup != s.ResourceGroup() {
-   		specs = append(specs, &groups.GroupSpec{
-   			Name:           azure.GetNormalizedKubernetesName(s.Vnet().ResourceGroup),
-   			AzureName:      s.Vnet().ResourceGroup,
-   			Location:       s.Location(),
-   			ClusterName:    s.ClusterName(),
-   			AdditionalTags: s.AdditionalTags(),
-   		})
-   	}
-   	return specs
-   }
-
-
-   // VnetPeeringSpecs returns the virtual network peering specs.
-   func (s *AROControlPlaneScope) VnetPeeringSpecs() []azure.ResourceSpecGetter {
-   	peeringSpecs := make([]azure.ResourceSpecGetter, 2*len(s.Vnet().Peerings))
-   	for i, peering := range s.Vnet().Peerings {
-   		forwardPeering := &vnetpeerings.VnetPeeringSpec{
-   			PeeringName:               azure.GenerateVnetPeeringName(s.Vnet().Name, peering.RemoteVnetName),
-   			SourceVnetName:            s.Vnet().Name,
-   			SourceResourceGroup:       s.Vnet().ResourceGroup,
-   			RemoteVnetName:            peering.RemoteVnetName,
-   			RemoteResourceGroup:       peering.ResourceGroup,
-   			SubscriptionID:            s.SubscriptionID(),
-   			AllowForwardedTraffic:     peering.ForwardPeeringProperties.AllowForwardedTraffic,
-   			AllowGatewayTransit:       peering.ForwardPeeringProperties.AllowGatewayTransit,
-   			AllowVirtualNetworkAccess: peering.ForwardPeeringProperties.AllowVirtualNetworkAccess,
-   			UseRemoteGateways:         peering.ForwardPeeringProperties.UseRemoteGateways,
-   		}
-   		reversePeering := &vnetpeerings.VnetPeeringSpec{
-   			PeeringName:               azure.GenerateVnetPeeringName(peering.RemoteVnetName, s.Vnet().Name),
-   			SourceVnetName:            peering.RemoteVnetName,
-   			SourceResourceGroup:       peering.ResourceGroup,
-   			RemoteVnetName:            s.Vnet().Name,
-   			RemoteResourceGroup:       s.Vnet().ResourceGroup,
-   			SubscriptionID:            s.SubscriptionID(),
-   			AllowForwardedTraffic:     peering.ReversePeeringProperties.AllowForwardedTraffic,
-   			AllowGatewayTransit:       peering.ReversePeeringProperties.AllowGatewayTransit,
-   			AllowVirtualNetworkAccess: peering.ReversePeeringProperties.AllowVirtualNetworkAccess,
-   			UseRemoteGateways:         peering.ReversePeeringProperties.UseRemoteGateways,
-   		}
-   		peeringSpecs[i*2] = forwardPeering
-   		peeringSpecs[i*2+1] = reversePeering
-   	}
-
-   	return peeringSpecs
-   }
-
-   // VNetSpec returns the virtual network spec.
-   func (s *AROControlPlaneScope) VNetSpec() azure.ASOResourceSpecGetter[*asonetworkv1api20201101.VirtualNetwork] {
-   	return &virtualnetworks.VNetSpec{
-   		ResourceGroup:    s.Vnet().ResourceGroup,
-   		Name:             s.Vnet().Name,
-   		CIDRs:            s.Vnet().CIDRBlocks,
-   		ExtendedLocation: s.ExtendedLocation(),
-   		Location:         s.Location(),
-   		ClusterName:      s.ClusterName(),
-   		AdditionalTags:   s.AdditionalTags(),
-   	}
-   }
-
-   // PrivateDNSSpec returns the private dns zone spec.
-   func (s *AROControlPlaneScope) PrivateDNSSpec() (zoneSpec azure.ResourceSpecGetter, linkSpec, recordSpec []azure.ResourceSpecGetter) {
-   	if s.IsAPIServerPrivate() {
-   		resourceGroup := s.ResourceGroup()
-   		if s.ControlPlane.Spec.NetworkSpec.PrivateDNSZoneResourceGroup != "" {
-   			resourceGroup = s.ControlPlane.Spec.NetworkSpec.PrivateDNSZoneResourceGroup
-   		}
-   		zone := privatedns.ZoneSpec{
-   			Name:           s.GetPrivateDNSZoneName(),
-   			ResourceGroup:  resourceGroup,
-   			ClusterName:    s.ClusterName(),
-   			AdditionalTags: s.AdditionalTags(),
-   		}
-
-   		links := make([]azure.ResourceSpecGetter, 1+len(s.Vnet().Peerings))
-   		links[0] = privatedns.LinkSpec{
-   			Name:              azure.GenerateVNetLinkName(s.Vnet().Name),
-   			ZoneName:          s.GetPrivateDNSZoneName(),
-   			SubscriptionID:    s.SubscriptionID(),
-   			VNetResourceGroup: s.Vnet().ResourceGroup,
-   			VNetName:          s.Vnet().Name,
-   			ResourceGroup:     resourceGroup,
-   			ClusterName:       s.ClusterName(),
-   			AdditionalTags:    s.AdditionalTags(),
-   		}
-   		for i, peering := range s.Vnet().Peerings {
-   			links[i+1] = privatedns.LinkSpec{
-   				Name:              azure.GenerateVNetLinkName(peering.RemoteVnetName),
-   				ZoneName:          s.GetPrivateDNSZoneName(),
-   				SubscriptionID:    s.SubscriptionID(),
-   				VNetResourceGroup: peering.ResourceGroup,
-   				VNetName:          peering.RemoteVnetName,
-   				ResourceGroup:     resourceGroup,
-   				ClusterName:       s.ClusterName(),
-   				AdditionalTags:    s.AdditionalTags(),
-   			}
-   		}
-
-   		records := make([]azure.ResourceSpecGetter, 1)
-   		records[0] = privatedns.RecordSpec{
-   			Record: infrav1.AddressRecord{
-   				Hostname: azure.PrivateAPIServerHostname,
-   				IP:       s.APIServerPrivateIP(),
-   			},
-   			ZoneName:      s.GetPrivateDNSZoneName(),
-   			ResourceGroup: resourceGroup,
-   		}
-
-   		return zone, links, records
-   	}
-
-   	return nil, nil, nil
-   }
-
-   // IsAzureBastionEnabled returns true if the azure bastion is enabled.
-   func (s *AROControlPlaneScope) IsAzureBastionEnabled() bool {
-   	return s.ControlPlane.Spec.BastionSpec.AzureBastion != nil
-   }
-
-   // AzureBastion returns the cluster AzureBastion.
-   func (s *AROControlPlaneScope) AzureBastion() *infrav1.AzureBastion {
-   	return s.ControlPlane.Spec.BastionSpec.AzureBastion
-   }
-
-   // AzureBastionSpec returns the bastion spec.
-   func (s *AROControlPlaneScope) AzureBastionSpec() azure.ASOResourceSpecGetter[*asonetworkv1api20220701.BastionHost] {
-   	if s.IsAzureBastionEnabled() {
-   		subnetID := azure.SubnetID(s.SubscriptionID(), s.Vnet().ResourceGroup, s.Vnet().Name, s.AzureBastion().Subnet.Name)
-   		publicIPID := azure.PublicIPID(s.SubscriptionID(), s.ResourceGroup(), s.AzureBastion().PublicIP.Name)
-
-   		return &bastionhosts.AzureBastionSpec{
-   			Name:            s.AzureBastion().Name,
-   			ResourceGroup:   s.ResourceGroup(),
-   			Location:        s.Location(),
-   			ClusterName:     s.ClusterName(),
-   			SubnetID:        subnetID,
-   			PublicIPID:      publicIPID,
-   			Sku:             s.AzureBastion().Sku,
-   			EnableTunneling: s.AzureBastion().EnableTunneling,
-   		}
-   	}
-
-   	return nil
-   }
-
-   // Vnet returns the cluster Vnet.
-   func (s *AROControlPlaneScope) Vnet() *infrav1.VnetSpec {
-   	return &s.ControlPlane.Spec.NetworkSpec.Vnet
-   }
-
-   // IsVnetManaged returns true if the vnet is managed.
-   func (s *AROControlPlaneScope) IsVnetManaged() bool {
-   	if s.cache.isVnetManaged != nil {
-   		return ptr.Deref(s.cache.isVnetManaged, false)
-   	}
-   	ctx := context.Background()
-   	ctx, log, done := tele.StartSpanWithLogger(ctx, "scope.AROControlPlaneScope.IsVnetManaged")
-   	defer done()
-
-   	vnet := s.VNetSpec().ResourceRef()
-   	vnet.SetNamespace(s.ASOOwner().GetNamespace())
-   	err := s.Client.Get(ctx, client.ObjectKeyFromObject(vnet), vnet)
-   	if err != nil {
-   		log.Error(err, "Unable to determine if AROControlPlaneScope VNET is managed by capz, assuming unmanaged", "AROControlPlane", s.ClusterName())
-   		return false
-   	}
-
-   	isManaged := infrav1.Tags(vnet.Status.Tags).HasOwned(s.ClusterName())
-   	s.cache.isVnetManaged = ptr.To(isManaged)
-   	return isManaged
-   }
-
-   // IsIPv6Enabled returns true if IPv6 is enabled.
-   func (s *AROControlPlaneScope) IsIPv6Enabled() bool {
-   	for _, cidr := range s.ControlPlane.Spec.NetworkSpec.Vnet.CIDRBlocks {
-   		if net.IsIPv6CIDRString(cidr) {
-   			return true
-   		}
-   	}
-   	return false
-   }
-
-   // Subnets returns the cluster subnets.
-   func (s *AROControlPlaneScope) Subnets() infrav1.Subnets {
-   	return s.ControlPlane.Spec.NetworkSpec.Subnets
-   }
-
-   // ControlPlaneSubnet returns the cluster control plane subnet.
-   func (s *AROControlPlaneScope) ControlPlaneSubnet() infrav1.SubnetSpec {
-   	subnet, _ := s.ControlPlane.Spec.NetworkSpec.GetControlPlaneSubnet()
-   	return subnet
-   }
-
-   // NodeSubnets returns the subnets with the node role.
-   func (s *AROControlPlaneScope) NodeSubnets() []infrav1.SubnetSpec {
-   	subnets := []infrav1.SubnetSpec{}
-   	for _, subnet := range s.ControlPlane.Spec.NetworkSpec.Subnets {
-   		if subnet.Role == infrav1.SubnetNode || subnet.Role == infrav1.SubnetCluster {
-   			subnets = append(subnets, subnet)
-   		}
-   	}
-
-   	return subnets
-   }
-
-   // Subnet returns the subnet with the provided name.
-   func (s *AROControlPlaneScope) Subnet(name string) infrav1.SubnetSpec {
-   	for _, sn := range s.ControlPlane.Spec.NetworkSpec.Subnets {
-   		if sn.Name == name {
-   			return sn
-   		}
-   	}
-
-   	return infrav1.SubnetSpec{}
-   }
-
-   // SetSubnet sets the subnet spec for the subnet with the same name.
-   func (s *AROControlPlaneScope) SetSubnet(subnetSpec infrav1.SubnetSpec) {
-   	for i, sn := range s.ControlPlane.Spec.NetworkSpec.Subnets {
-   		if sn.Name == subnetSpec.Name {
-   			s.ControlPlane.Spec.NetworkSpec.Subnets[i] = subnetSpec
-   			return
-   		}
-   	}
-   }
-
-   // SetNatGatewayIDInSubnets sets the NAT Gateway ID in the subnets with the same name.
-   func (s *AROControlPlaneScope) SetNatGatewayIDInSubnets(name string, id string) {
-   	for _, subnet := range s.Subnets() {
-   		if subnet.NatGateway.Name == name {
-   			subnet.NatGateway.ID = id
-   			s.SetSubnet(subnet)
-   		}
-   	}
-   }
-
-   // UpdateSubnetCIDRs updates the subnet CIDRs for the subnet with the same name.
-   func (s *AROControlPlaneScope) UpdateSubnetCIDRs(name string, cidrBlocks []string) {
-   	subnetSpecInfra := s.Subnet(name)
-   	subnetSpecInfra.CIDRBlocks = cidrBlocks
-   	s.SetSubnet(subnetSpecInfra)
-   }
-
-   // UpdateSubnetID updates the subnet ID for the subnet with the same name.
-   func (s *AROControlPlaneScope) UpdateSubnetID(name string, id string) {
-   	subnetSpecInfra := s.Subnet(name)
-   	subnetSpecInfra.ID = id
-   	s.SetSubnet(subnetSpecInfra)
-   }
-
-   // ControlPlaneRouteTable returns the cluster controlplane routetable.
-   func (s *AROControlPlaneScope) ControlPlaneRouteTable() infrav1.RouteTable {
-   	subnet, _ := s.ControlPlane.Spec.NetworkSpec.GetControlPlaneSubnet()
-   	return subnet.RouteTable
-   }
-
-   // ControlPlaneEnabled returns true if the control plane is enabled.
-   func (s *AROControlPlaneScope) ControlPlaneEnabled() bool {
-   	return s.ControlPlane.Spec.ControlPlaneEnabled
-   }
-
-   // APIServerLB returns the cluster API Server load balancer.
-   func (s *AROControlPlaneScope) APIServerLB() *infrav1.LoadBalancerSpec {
-   	return s.ControlPlane.Spec.NetworkSpec.APIServerLB
-   }
-
-   // NodeOutboundLB returns the cluster node outbound load balancer.
-   func (s *AROControlPlaneScope) NodeOutboundLB() *infrav1.LoadBalancerSpec {
-   	return s.ControlPlane.Spec.NetworkSpec.NodeOutboundLB
-   }
-
-   // ControlPlaneOutboundLB returns the cluster control plane outbound load balancer.
-   func (s *AROControlPlaneScope) ControlPlaneOutboundLB() *infrav1.LoadBalancerSpec {
-   	return s.ControlPlane.Spec.NetworkSpec.ControlPlaneOutboundLB
-   }
-
-   // AdditionalAPIServerLBPorts returns the additional API server ports list.
-   func (s *AROControlPlaneScope) AdditionalAPIServerLBPorts() []infrav1.LoadBalancerPort {
-   	return s.ControlPlane.Spec.NetworkSpec.AdditionalAPIServerLBPorts
-   }
-
-   // APIServerLBName returns the API Server LB name.
-   func (s *AROControlPlaneScope) APIServerLBName() string {
-   	apiServerLB := s.APIServerLB()
-   	if apiServerLB != nil {
-   		return apiServerLB.Name
-   	}
-   	return ""
-   }
-
-   // IsAPIServerPrivate returns true if the API Server LB is of type Internal.
-   func (s *AROControlPlaneScope) IsAPIServerPrivate() bool {
-   	return s.APIServerLB() != nil && s.APIServerLB().Type == infrav1.Internal
-   }
-
-   // APIServerPublicIP returns the API Server public IP.
-   func (s *AROControlPlaneScope) APIServerPublicIP() *infrav1.PublicIPSpec {
-   	return s.APIServerLB().FrontendIPs[0].PublicIP
-   }
-
-   // APIServerPrivateIP returns the API Server private IP.
-   func (s *AROControlPlaneScope) APIServerPrivateIP() string {
-   	return s.APIServerLB().FrontendIPs[0].PrivateIPAddress
-   }
-
-   // GetPrivateDNSZoneName returns the Private DNS Zone from the spec or generate it from cluster name.
-   func (s *AROControlPlaneScope) GetPrivateDNSZoneName() string {
-   	if s.ControlPlane.Spec.NetworkSpec.PrivateDNSZoneName != "" {
-   		return s.ControlPlane.Spec.NetworkSpec.PrivateDNSZoneName
-   	}
-   	return azure.GeneratePrivateDNSZoneName(s.ClusterName())
-   }
-
-   // APIServerLBPoolName returns the API Server LB backend pool name.
-   func (s *AROControlPlaneScope) APIServerLBPoolName() string {
-   	return s.APIServerLB().BackendPool.Name
-   }
-
-   // OutboundLB returns the outbound LB.
-   func (s *AROControlPlaneScope) outboundLB(role string) *infrav1.LoadBalancerSpec {
-   	if role == infrav1.Node {
-   		return s.NodeOutboundLB()
-   	}
-   	if s.IsAPIServerPrivate() {
-   		return s.ControlPlaneOutboundLB()
-   	}
-   	return s.APIServerLB()
-   }
-
-   // OutboundLBName returns the name of the outbound LB.
-   func (s *AROControlPlaneScope) OutboundLBName(role string) string {
-   	lb := s.outboundLB(role)
-   	if lb == nil {
-   		return ""
-   	}
-   	return lb.Name
-   }
-
-   // OutboundPoolName returns the outbound LB backend pool name.
-   func (s *AROControlPlaneScope) OutboundPoolName(role string) string {
-   	lb := s.outboundLB(role)
-   	if lb == nil {
-   		return ""
-   	}
-   	return lb.BackendPool.Name
-   }
-*/
+// ASOOwner implements aso.Scope.
+func (s *AROControlPlaneScope) ASOOwner() client.Object {
+	return s.ControlPlane
+}
+
+// NSGSpecs returns the security group specs.
+func (s *AROControlPlaneScope) NSGSpecs() []azure.ResourceSpecGetter {
+	nsgspecs := make([]azure.ResourceSpecGetter, len(s.NetworkSpec.Subnets))
+	for i, subnet := range s.NetworkSpec.Subnets {
+		nsgspecs[i] = &securitygroups.NSGSpec{
+			Name:                     subnet.SecurityGroup.Name,
+			SecurityRules:            subnet.SecurityGroup.SecurityRules,
+			ResourceGroup:            s.Vnet().ResourceGroup,
+			Location:                 s.Location(),
+			ClusterName:              s.ClusterName(),
+			AdditionalTags:           s.AdditionalTags(),
+			LastAppliedSecurityRules: s.getLastAppliedSecurityRules(subnet.SecurityGroup.Name),
+		}
+	}
+
+	return nsgspecs
+}
+
+// SubnetSpecs returns the subnets specs.
+func (s *AROControlPlaneScope) SubnetSpecs() []azure.ASOResourceSpecGetter[*asonetworkv1api20201101.VirtualNetworksSubnet] {
+	numberOfSubnets := len(s.NetworkSpec.Subnets)
+
+	subnetSpecs := make([]azure.ASOResourceSpecGetter[*asonetworkv1api20201101.VirtualNetworksSubnet], 0, numberOfSubnets)
+
+	for _, subnet := range s.NetworkSpec.Subnets {
+		subnetSpec := &subnets.SubnetSpec{
+			Name:              subnet.Name,
+			ResourceGroup:     s.ResourceGroup(),
+			SubscriptionID:    s.SubscriptionID(),
+			CIDRs:             subnet.CIDRBlocks,
+			VNetName:          s.Vnet().Name,
+			VNetResourceGroup: s.Vnet().ResourceGroup,
+			IsVNetManaged:     s.IsVnetManaged(),
+			RouteTableName:    subnet.RouteTable.Name,
+			SecurityGroupName: subnet.SecurityGroup.Name,
+			NatGatewayName:    subnet.NatGateway.Name,
+			ServiceEndpoints:  subnet.ServiceEndpoints,
+		}
+		subnetSpecs = append(subnetSpecs, subnetSpec)
+	}
+
+	return subnetSpecs
+}
+
+// GroupSpecs returns the resource group spec.
+func (s *AROControlPlaneScope) GroupSpecs() []azure.ASOResourceSpecGetter[*asoresourcesv1.ResourceGroup] {
+	specs := []azure.ASOResourceSpecGetter[*asoresourcesv1.ResourceGroup]{
+		&groups.GroupSpec{
+			Name:           s.ResourceGroup(),
+			AzureName:      s.ResourceGroup(),
+			Location:       s.Location(),
+			ClusterName:    s.ClusterName(),
+			AdditionalTags: s.AdditionalTags(),
+		},
+	}
+	if s.Vnet().ResourceGroup != "" && s.Vnet().ResourceGroup != s.ResourceGroup() {
+		specs = append(specs, &groups.GroupSpec{
+			Name:           azure.GetNormalizedKubernetesName(s.Vnet().ResourceGroup),
+			AzureName:      s.Vnet().ResourceGroup,
+			Location:       s.Location(),
+			ClusterName:    s.ClusterName(),
+			AdditionalTags: s.AdditionalTags(),
+		})
+	}
+	return specs
+}
+
+// VNetSpec returns the virtual network spec.
+func (s *AROControlPlaneScope) VNetSpec() azure.ASOResourceSpecGetter[*asonetworkv1api20201101.VirtualNetwork] {
+	return &virtualnetworks.VNetSpec{
+		ResourceGroup:    s.Vnet().ResourceGroup,
+		Name:             s.Vnet().Name,
+		CIDRs:            s.Vnet().CIDRBlocks,
+		ExtendedLocation: s.ExtendedLocation(),
+		Location:         s.Location(),
+		ClusterName:      s.ClusterName(),
+		AdditionalTags:   s.AdditionalTags(),
+	}
+}
+
+// Vnet returns the cluster Vnet.
+func (s *AROControlPlaneScope) Vnet() *infrav1.VnetSpec {
+	return &s.NetworkSpec.Vnet
+}
+
+// Subnet returns the subnet with the provided name.
+func (s *AROControlPlaneScope) Subnet(name string) infrav1.SubnetSpec {
+	for _, sn := range s.NetworkSpec.Subnets {
+		if sn.Name == name {
+			return sn
+		}
+	}
+
+	return infrav1.SubnetSpec{}
+}
+
+// SetSubnet sets the subnet spec for the subnet with the same name.
+func (s *AROControlPlaneScope) SetSubnet(subnetSpec infrav1.SubnetSpec) {
+	for i, sn := range s.NetworkSpec.Subnets {
+		if sn.Name == subnetSpec.Name {
+			s.NetworkSpec.Subnets[i] = subnetSpec
+			return
+		}
+	}
+}
+
+// UpdateSubnetCIDRs updates the subnet CIDRs for the subnet with the same name.
+func (s *AROControlPlaneScope) UpdateSubnetCIDRs(name string, cidrBlocks []string) {
+	subnetSpecInfra := s.Subnet(name)
+	subnetSpecInfra.CIDRBlocks = cidrBlocks
+	s.SetSubnet(subnetSpecInfra)
+}
+
+// UpdateSubnetID updates the subnet ID for the subnet with the same name.
+func (s *AROControlPlaneScope) UpdateSubnetID(name string, id string) {
+	subnetSpecInfra := s.Subnet(name)
+	subnetSpecInfra.ID = id
+	s.SetSubnet(subnetSpecInfra)
+}
 
 // ResourceGroup returns the cluster resource group.
 func (s *AROControlPlaneScope) ResourceGroup() string {
 	return s.ControlPlane.Spec.Platform.ResourceGroup
 }
 
-/*
-   // NodeResourceGroup returns the resource group where nodes live.
-   // For AROControlPlanes this is the same as the cluster RG.
-   func (s *AROControlPlaneScope) NodeResourceGroup() string {
-   	return s.ResourceGroup()
-   }
-*/
-
 // ClusterName returns the cluster name.
 func (s *AROControlPlaneScope) ClusterName() string {
 	return s.Cluster.Name
 }
 
-/*
-   // Namespace returns the cluster namespace.
-   func (s *AROControlPlaneScope) Namespace() string {
-   	return s.Cluster.Namespace
-   }
+// Namespace returns the cluster namespace.
+func (s *AROControlPlaneScope) Namespace() string {
+	return s.Cluster.Namespace
+}
 
-   // Location returns the cluster location.
-   func (s *AROControlPlaneScope) Location() string {
-   	return s.ControlPlane.Spec.Location
-   }
+// AdditionalTags returns AdditionalTags from the scope's AROControlPlane.
+func (s *AROControlPlaneScope) AdditionalTags() infrav1.Tags {
+	tags := make(infrav1.Tags)
+	if s.ControlPlane.Spec.AdditionalTags != nil {
+		tags = s.ControlPlane.Spec.AdditionalTags.DeepCopy()
+	}
+	return tags
+}
 
-   // AvailabilitySetEnabled informs machines that they should be part of an Availability Set.
-   func (s *AROControlPlaneScope) AvailabilitySetEnabled() bool {
-   	return len(s.ControlPlane.Status.FailureDomains) == 0
-   }
+func (s *AROControlPlaneScope) ExtendedLocation() *infrav1.ExtendedLocationSpec {
+	return nil
+}
 
-   // CloudProviderConfigOverrides returns the cloud provider config overrides for the cluster.
-   func (s *AROControlPlaneScope) CloudProviderConfigOverrides() *infrav1.CloudProviderConfigOverrides {
-   	return s.ControlPlane.Spec.CloudProviderConfigOverrides
-   }
+func (s *AROControlPlaneScope) IsVnetManaged() bool {
+	if s.cache.isVnetManaged != nil {
+		return ptr.Deref(s.cache.isVnetManaged, false)
+	}
+	// TODO refactor `IsVnetManaged` so that it is able to use an upstream context
+	// see https://github.com/kubernetes-sigs/cluster-api-provider-azure/issues/2581
+	ctx := context.Background()
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "scope.ManagedControlPlaneScope.IsVnetManaged")
+	defer done()
 
-   // ExtendedLocationName returns ExtendedLocation name for the cluster.
-   func (s *AROControlPlaneScope) ExtendedLocationName() string {
-   	if s.ExtendedLocation() == nil {
-   		return ""
-   	}
-   	return s.ExtendedLocation().Name
-   }
+	vnet := s.VNetSpec().ResourceRef()
+	vnet.SetNamespace(s.ASOOwner().GetNamespace())
+	err := s.Client.Get(ctx, client.ObjectKeyFromObject(vnet), vnet)
+	if err != nil {
+		log.Error(err, "Unable to determine if ManagedControlPlaneScope VNET is managed by capz, assuming unmanaged", "AzureManagedCluster", s.ClusterName())
+		return false
+	}
 
-   // ExtendedLocationType returns ExtendedLocation type for the cluster.
-   func (s *AROControlPlaneScope) ExtendedLocationType() string {
-   	if s.ExtendedLocation() == nil {
-   		return ""
-   	}
-   	return s.ExtendedLocation().Type
-   }
+	isManaged := infrav1.Tags(vnet.Status.Tags).HasOwned(s.ClusterName())
+	s.cache.isVnetManaged = ptr.To(isManaged)
+	return isManaged
+}
 
-   // ExtendedLocation returns the cluster extendedLocation.
-   func (s *AROControlPlaneScope) ExtendedLocation() *infrav1.ExtendedLocationSpec {
-   	return s.ControlPlane.Spec.ExtendedLocation
-   }
+func (s *AROControlPlaneScope) getLastAppliedSecurityRules(nsgName string) map[string]interface{} {
+	// Retrieve the last applied security rules for all NSGs.
+	lastAppliedSecurityRulesAll, err := s.AnnotationJSON(azure.SecurityRuleLastAppliedAnnotation)
+	if err != nil {
+		return map[string]interface{}{}
+	}
 
-   // GenerateFQDN generates a fully qualified domain name, based on a hash, cluster name and cluster location.
-   func (s *AROControlPlaneScope) GenerateFQDN(ipName string) string {
-   	h := fnv.New32a()
-   	if _, err := fmt.Fprintf(h, "%s/%s/%s", s.SubscriptionID(), s.ResourceGroup(), ipName); err != nil {
-   		return ""
-   	}
-   	hash := fmt.Sprintf("%x", h.Sum32())
-   	return strings.ToLower(fmt.Sprintf("%s-%s.%s.%s", s.ClusterName(), hash, s.Location(), s.AzureClients.ResourceManagerVMDNSSuffix))
-   }
+	// Retrieve the last applied security rules for this NSG.
+	lastAppliedSecurityRules, ok := lastAppliedSecurityRulesAll[nsgName].(map[string]interface{})
+	if !ok {
+		lastAppliedSecurityRules = map[string]interface{}{}
+	}
+	return lastAppliedSecurityRules
+}
 
-   // GenerateLegacyFQDN generates an IP name and a fully qualified domain name, based on a hash, cluster name and cluster location.
-   // Deprecated: use GenerateFQDN instead.
-   func (s *AROControlPlaneScope) GenerateLegacyFQDN() (ip string, domain string) {
-   	h := fnv.New32a()
-   	if _, err := fmt.Fprintf(h, "%s/%s/%s", s.SubscriptionID(), s.ResourceGroup(), s.ClusterName()); err != nil {
-   		return "", ""
-   	}
-   	ipName := fmt.Sprintf("%s-%x", s.ClusterName(), h.Sum32())
-   	fqdn := fmt.Sprintf("%s.%s.%s", ipName, s.Location(), s.AzureClients.ResourceManagerVMDNSSuffix)
-   	return ipName, fqdn
-   }
+// AnnotationJSON returns a map[string]interface from a JSON annotation.
+func (s *AROControlPlaneScope) AnnotationJSON(annotation string) (map[string]interface{}, error) {
+	out := map[string]interface{}{}
+	jsonAnnotation := s.ControlPlane.GetAnnotations()[annotation]
+	if jsonAnnotation == "" {
+		return out, nil
+	}
+	err := json.Unmarshal([]byte(jsonAnnotation), &out)
+	if err != nil {
+		return out, err
+	}
+	return out, nil
+}
 
-   // ListOptionsLabelSelector returns a ListOptions with a label selector for clusterName.
-   func (s *AROControlPlaneScope) ListOptionsLabelSelector() client.ListOption {
-   	return client.MatchingLabels(map[string]string{
-   		clusterv1.ClusterNameLabel: s.Cluster.Name,
-   	})
-   }
+// UpdateAnnotationJSON updates the `annotation` with
+// `content`. `content` in this case should be a `map[string]interface{}`
+// suitable for turning into JSON. This `content` map will be marshalled into a
+// JSON string before being set as the given `annotation`.
+func (s *AROControlPlaneScope) UpdateAnnotationJSON(annotation string, content map[string]interface{}) error {
+	b, err := json.Marshal(content)
+	if err != nil {
+		return err
+	}
+	s.SetAnnotation(annotation, string(b))
+	return nil
+}
 
-   // PatchObject persists the cluster configuration and status.
-   func (s *AROControlPlaneScope) PatchObject(ctx context.Context) error {
-   	ctx, _, done := tele.StartSpanWithLogger(ctx, "scope.AROControlPlaneScope.PatchObject")
-   	defer done()
+// SetAnnotation sets a key value annotation on the ControlPlane.
+func (s *AROControlPlaneScope) SetAnnotation(key, value string) {
+	if s.ControlPlane.Annotations == nil {
+		s.ControlPlane.Annotations = map[string]string{}
+	}
+	s.ControlPlane.Annotations[key] = value
+}
 
-   	conditions.SetSummary(s.ControlPlane)
+func (s *AROControlPlaneScope) initNetworkSpec() {
+	s.NetworkSpec = &infrav1.NetworkSpec{
+		Vnet: infrav1.VnetSpec{
+			ResourceGroup: s.ControlPlane.Spec.Platform.ResourceGroup,
+			ID:            s.vnetId(),
+			Name:          s.vnetName(),
+		},
+		Subnets: infrav1.Subnets{
+			infrav1.SubnetSpec{
+				SubnetClassSpec: infrav1.SubnetClassSpec{
+					Name: s.subnetName(),
+				},
+				ID: s.ControlPlane.Spec.Platform.Subnet,
+				SecurityGroup: infrav1.SecurityGroup{
+					ID:   s.ControlPlane.Spec.Platform.NetworkSecurityGroupID,
+					Name: s.securityGroupName(),
+				},
+			},
+		},
+	}
+}
 
-   	return s.patchHelper.Patch(
-   		ctx,
-   		s.ControlPlane,
-   		patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
-   			clusterv1.ReadyCondition,
-   			infrav1.ResourceGroupReadyCondition,
-   			infrav1.RouteTablesReadyCondition,
-   			infrav1.NetworkInfrastructureReadyCondition,
-   			infrav1.VnetPeeringReadyCondition,
-   			infrav1.DisksReadyCondition,
-   			infrav1.NATGatewaysReadyCondition,
-   			infrav1.LoadBalancersReadyCondition,
-   			infrav1.BastionHostReadyCondition,
-   			infrav1.VNetReadyCondition,
-   			infrav1.SubnetsReadyCondition,
-   			infrav1.SecurityGroupsReadyCondition,
-   			infrav1.PrivateDNSZoneReadyCondition,
-   			infrav1.PrivateDNSLinkReadyCondition,
-   			infrav1.PrivateDNSRecordReadyCondition,
-   			infrav1.PrivateEndpointsReadyCondition,
-   		}})
-   }
+func (s *AROControlPlaneScope) vnetId() string {
+	// /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{vnetName}/subnets/{subnetName}
+	re := regexp.MustCompile("(/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/virtualNetworks/[^/]+)/subnets/[^/]+")
+	groups := re.FindStringSubmatch(s.ControlPlane.Spec.Platform.Subnet)
+	if groups == nil && len(groups) > 0 {
+		return ""
+	}
+	return groups[1]
+}
 
-   // Close closes the current scope persisting the cluster configuration and status.
-   func (s *AROControlPlaneScope) Close(ctx context.Context) error {
-   	return s.PatchObject(ctx)
-   }
+func (s *AROControlPlaneScope) vnetName() string {
+	re := regexp.MustCompile("/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/virtualNetworks/([^/]+)/subnets/[^/]+")
+	groups := re.FindStringSubmatch(s.ControlPlane.Spec.Platform.Subnet)
+	if groups == nil && len(groups) > 0 {
+		return ""
+	}
+	return groups[1]
 
-   // AdditionalTags returns AdditionalTags from the scope's AROControlPlane.
-   func (s *AROControlPlaneScope) AdditionalTags() infrav1.Tags {
-   	tags := make(infrav1.Tags)
-   	if s.ControlPlane.Spec.AdditionalTags != nil {
-   		tags = s.ControlPlane.Spec.AdditionalTags.DeepCopy()
-   	}
-   	return tags
-   }
+}
+func (s *AROControlPlaneScope) subnetName() string {
+	re := regexp.MustCompile("/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/virtualNetworks/[^/]+/subnets/([^/]+)")
+	groups := re.FindStringSubmatch(s.ControlPlane.Spec.Platform.Subnet)
+	if groups == nil && len(groups) > 0 {
+		return ""
+	}
+	return groups[1]
+}
 
-   // APIServerPort returns the APIServerPort to use when creating the load balancer.
-   func (s *AROControlPlaneScope) APIServerPort() int32 {
-   	if s.Cluster.Spec.ClusterNetwork != nil && s.Cluster.Spec.ClusterNetwork.APIServerPort != nil {
-   		return *s.Cluster.Spec.ClusterNetwork.APIServerPort
-   	}
-   	return 6443
-   }
-
-   // APIServerHost returns the hostname used to reach the API server.
-   func (s *AROControlPlaneScope) APIServerHost() string {
-   	if s.IsAPIServerPrivate() {
-   		return azure.GeneratePrivateFQDN(s.GetPrivateDNSZoneName())
-   	}
-   	return s.APIServerPublicIP().DNSName
-   }
-
-   // SetFailureDomain sets a failure domain in a cluster's status by its id.
-   // The provided failure domain spec may be overridden to false by cluster's spec property.
-   func (s *AROControlPlaneScope) SetFailureDomain(id string, spec clusterv1.FailureDomainSpec) {
-   	if s.ControlPlane.Status.FailureDomains == nil {
-   		s.ControlPlane.Status.FailureDomains = make(clusterv1.FailureDomains)
-   	}
-
-   	if fd, ok := s.ControlPlane.Spec.FailureDomains[id]; ok && !fd.ControlPlane {
-   		spec.ControlPlane = false
-   	}
-
-   	s.ControlPlane.Status.FailureDomains[id] = spec
-   }
-
-   // FailureDomains returns the failure domains for the cluster.
-   func (s *AROControlPlaneScope) FailureDomains() []*string {
-   	fds := make([]*string, len(s.ControlPlane.Status.FailureDomains))
-   	i := 0
-   	for id := range s.ControlPlane.Status.FailureDomains {
-   		fds[i] = ptr.To(id)
-   		i++
-   	}
-
-   	// sort in increasing order restoring the original sort.Strings(fds) behavior
-   	sort.Slice(fds, func(i, j int) bool {
-   		return *fds[i] < *fds[j]
-   	})
-
-   	return fds
-   }
-
-   // SetControlPlaneSecurityRules sets the default security rules of the control plane subnet.
-   // Note that this is not done in a webhook as it requires a valid Cluster object to exist to get the API Server port.
-   func (s *AROControlPlaneScope) SetControlPlaneSecurityRules() {
-   	if !s.ControlPlaneEnabled() {
-   		return
-   	}
-
-   	subnet := s.ControlPlaneSubnet()
-
-   	missingSSH := subnet.GetSecurityRuleByDestination("22") == nil
-   	if missingSSH {
-   		subnet.SecurityGroup.SecurityRules = append(subnet.SecurityGroup.SecurityRules,
-   			infrav1.SecurityRule{
-   				Name:             "allow_ssh",
-   				Description:      "Allow SSH",
-   				Priority:         2200,
-   				Protocol:         infrav1.SecurityGroupProtocolTCP,
-   				Direction:        infrav1.SecurityRuleDirectionInbound,
-   				Source:           ptr.To("*"),
-   				SourcePorts:      ptr.To("*"),
-   				Destination:      ptr.To("*"),
-   				DestinationPorts: ptr.To("22"),
-   				Action:           infrav1.SecurityRuleActionAllow,
-   			})
-   	}
-
-   	port := strconv.Itoa(int(s.APIServerPort()))
-
-   	missingAPIPort := subnet.GetSecurityRuleByDestination(port) == nil
-   	if missingAPIPort {
-   		subnet.SecurityGroup.SecurityRules = append(subnet.SecurityGroup.SecurityRules, infrav1.SecurityRule{
-   			Name:             "allow_apiserver",
-   			Description:      "Allow K8s API Server",
-   			Priority:         2201,
-   			Protocol:         infrav1.SecurityGroupProtocolTCP,
-   			Direction:        infrav1.SecurityRuleDirectionInbound,
-   			Source:           ptr.To("*"),
-   			SourcePorts:      ptr.To("*"),
-   			Destination:      ptr.To("*"),
-   			DestinationPorts: ptr.To(port),
-   			Action:           infrav1.SecurityRuleActionAllow,
-   		})
-   	}
-
-   	if missingSSH || missingAPIPort {
-   		s.ControlPlane.Spec.NetworkSpec.UpdateControlPlaneSubnet(subnet)
-   	}
-   }
-
-   // SetDNSName sets the API Server public IP DNS name.
-   // Note: this logic exists only for purposes of ensuring backwards compatibility for old clusters created without an APIServerLB, and should be removed in the future.
-   func (s *AROControlPlaneScope) SetDNSName() {
-   	if !s.ControlPlaneEnabled() {
-   		return
-   	}
-   	// for back compat, set the old API Server defaults if no API Server Spec has been set by new webhooks.
-   	lb := s.APIServerLB()
-   	if lb == nil || lb.Name == "" {
-   		lbName := fmt.Sprintf("%s-%s", s.ClusterName(), "public-lb")
-   		ip, dns := s.GenerateLegacyFQDN()
-   		lb = &infrav1.LoadBalancerSpec{
-   			Name: lbName,
-   			FrontendIPs: []infrav1.FrontendIP{
-   				{
-   					Name: azure.GenerateFrontendIPConfigName(lbName),
-   					PublicIP: &infrav1.PublicIPSpec{
-   						Name:    ip,
-   						DNSName: dns,
-   					},
-   				},
-   			},
-   			LoadBalancerClassSpec: infrav1.LoadBalancerClassSpec{
-   				SKU:  infrav1.SKUStandard,
-   				Type: infrav1.Public,
-   			},
-   		}
-   		lb.DeepCopyInto(s.APIServerLB())
-   	}
-   	// Generate valid FQDN if not set.
-   	// Note: this function uses the AROControlPlane subscription ID.
-   	if !s.IsAPIServerPrivate() && s.APIServerPublicIP().DNSName == "" {
-   		s.APIServerPublicIP().DNSName = s.GenerateFQDN(s.APIServerPublicIP().Name)
-   	}
-   }
-*/
-
-/*
-   // AnnotationJSON returns a map[string]interface from a JSON annotation.
-   func (s *AROControlPlaneScope) AnnotationJSON(annotation string) (map[string]interface{}, error) {
-   	out := map[string]interface{}{}
-   	jsonAnnotation := s.ControlPlane.GetAnnotations()[annotation]
-   	if jsonAnnotation == "" {
-   		return out, nil
-   	}
-   	err := json.Unmarshal([]byte(jsonAnnotation), &out)
-   	if err != nil {
-   		return out, err
-   	}
-   	return out, nil
-   }
-
-   // UpdateAnnotationJSON updates the `annotation` with
-   // `content`. `content` in this case should be a `map[string]interface{}`
-   // suitable for turning into JSON. This `content` map will be marshalled into a
-   // JSON string before being set as the given `annotation`.
-   func (s *AROControlPlaneScope) UpdateAnnotationJSON(annotation string, content map[string]interface{}) error {
-   	b, err := json.Marshal(content)
-   	if err != nil {
-   		return err
-   	}
-   	s.SetAnnotation(annotation, string(b))
-   	return nil
-   }
-
-   // SetAnnotation sets a key value annotation on the AROControlPlane.
-   func (s *AROControlPlaneScope) SetAnnotation(key, value string) {
-   	if s.ControlPlane.Annotations == nil {
-   		s.ControlPlane.Annotations = map[string]string{}
-   	}
-   	s.ControlPlane.Annotations[key] = value
-   }
-
-   // PrivateEndpointSpecs returns the private endpoint specs.
-   func (s *AROControlPlaneScope) PrivateEndpointSpecs() []azure.ASOResourceSpecGetter[*asonetworkv1api20220701.PrivateEndpoint] {
-   	subnetsList := s.ControlPlane.Spec.NetworkSpec.Subnets
-   	numberOfSubnets := len(subnetsList)
-   	if s.IsAzureBastionEnabled() {
-   		subnetsList = append(subnetsList, s.ControlPlane.Spec.BastionSpec.AzureBastion.Subnet)
-   		numberOfSubnets++
-   	}
-
-   	// privateEndpointSpecs will be an empty list if no private endpoints were found.
-   	// We pre-allocate the list to avoid unnecessary allocations during append.
-   	privateEndpointSpecs := make([]azure.ASOResourceSpecGetter[*asonetworkv1api20220701.PrivateEndpoint], 0, numberOfSubnets)
-
-   	for _, subnet := range subnetsList {
-   		for _, privateEndpoint := range subnet.PrivateEndpoints {
-   			privateEndpointSpec := &privateendpoints.PrivateEndpointSpec{
-   				Name:                       privateEndpoint.Name,
-   				ResourceGroup:              s.ResourceGroup(),
-   				Location:                   privateEndpoint.Location,
-   				CustomNetworkInterfaceName: privateEndpoint.CustomNetworkInterfaceName,
-   				PrivateIPAddresses:         privateEndpoint.PrivateIPAddresses,
-   				SubnetID:                   subnet.ID,
-   				ApplicationSecurityGroups:  privateEndpoint.ApplicationSecurityGroups,
-   				ManualApproval:             privateEndpoint.ManualApproval,
-   				ClusterName:                s.ClusterName(),
-   				AdditionalTags:             s.AdditionalTags(),
-   			}
-
-   			for _, privateLinkServiceConnection := range privateEndpoint.PrivateLinkServiceConnections {
-   				pl := privateendpoints.PrivateLinkServiceConnection{
-   					PrivateLinkServiceID: privateLinkServiceConnection.PrivateLinkServiceID,
-   					Name:                 privateLinkServiceConnection.Name,
-   					RequestMessage:       privateLinkServiceConnection.RequestMessage,
-   					GroupIDs:             privateLinkServiceConnection.GroupIDs,
-   				}
-   				privateEndpointSpec.PrivateLinkServiceConnections = append(privateEndpointSpec.PrivateLinkServiceConnections, pl)
-   			}
-   			privateEndpointSpecs = append(privateEndpointSpecs, privateEndpointSpec)
-   		}
-   	}
-
-   	return privateEndpointSpecs
-   }
-
-   func (s *AROControlPlaneScope) getLastAppliedSecurityRules(nsgName string) map[string]interface{} {
-   	// Retrieve the last applied security rules for all NSGs.
-   	lastAppliedSecurityRulesAll, err := s.AnnotationJSON(azure.SecurityRuleLastAppliedAnnotation)
-   	if err != nil {
-   		return map[string]interface{}{}
-   	}
-
-   	// Retrieve the last applied security rules for this NSG.
-   	lastAppliedSecurityRules, ok := lastAppliedSecurityRulesAll[nsgName].(map[string]interface{})
-   	if !ok {
-   		lastAppliedSecurityRules = map[string]interface{}{}
-   	}
-   	return lastAppliedSecurityRules
-   }
-*/
+func (s *AROControlPlaneScope) securityGroupName() string {
+	// /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}
+	re := regexp.MustCompile("/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/networkSecurityGroups/([^/]+)")
+	groups := re.FindStringSubmatch(s.ControlPlane.Spec.Platform.NetworkSecurityGroupID)
+	if groups == nil && len(groups) > 0 {
+		return ""
+	}
+	return groups[1]
+}

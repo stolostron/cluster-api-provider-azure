@@ -20,8 +20,13 @@ import (
 	"context"
 	"fmt"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/groups"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclustercredentials"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclusters"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/identities"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/securitygroups"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/subnets"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/virtualnetworks"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/secret"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,7 +59,15 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 	if err != nil {
 		return nil, errors.Wrap(err, "failed creating a NewCache")
 	}
-	hpcOpenshiftSvc, err := hcpopenshiftclusters.New(scope, skuCache)
+	securityGroupsSvc, err := securitygroups.New(scope)
+	if err != nil {
+		return nil, err
+	}
+	identitiesSvc, err := identities.NewClient(scope)
+	if err != nil {
+		return nil, err
+	}
+	hpcOpenshiftSvc, err := hcpopenshiftclusters.New(scope, skuCache, identitiesSvc)
 	if err != nil {
 		return nil, err
 	}
@@ -66,6 +79,10 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 		kubeclient: scope.Client,
 		scope:      scope,
 		services: []azure.ServiceReconciler{
+			groups.New(scope),
+			virtualnetworks.New(scope),
+			securityGroupsSvc,
+			subnets.New(scope),
 			hpcOpenshiftSvc,
 			hpcOpenshiftSecretsSvc,
 		},

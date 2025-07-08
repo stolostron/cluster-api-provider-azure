@@ -19,9 +19,12 @@ package hcpopenshiftclusters
 import (
 	"context"
 	"fmt"
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/identities"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
+	azureutil "sigs.k8s.io/cluster-api-provider-azure/util/azure"
 
 	arohcp "github.com/marek-veber/ARO-HCP/external/api/v20240610preview/generated"
 
@@ -49,12 +52,13 @@ type (
 		Scope HcpOpenShiftClusterScope
 		Client
 		resourceSKUCache *resourceskus.Cache
+		identitiesGetter identities.Client
 		async.Reconciler
 	}
 )
 
 // New creates a new service.
-func New(scope HcpOpenShiftClusterScope, skuCache *resourceskus.Cache) (*Service, error) {
+func New(scope HcpOpenShiftClusterScope, skuCache *resourceskus.Cache, identitiesGetter identities.Client) (*Service, error) {
 	client, err := newClient(scope, scope.DefaultedAzureCallTimeout())
 	if err != nil {
 		return nil, err
@@ -65,6 +69,7 @@ func New(scope HcpOpenShiftClusterScope, skuCache *resourceskus.Cache) (*Service
 			arohcp.HcpOpenShiftClustersClientDeleteResponse](scope, client, client),
 		Client:           client,
 		resourceSKUCache: skuCache,
+		identitiesGetter: identitiesGetter,
 	}, nil
 }
 
@@ -75,7 +80,7 @@ func (s *Service) Name() string {
 
 // Reconcile idempotently gets, creates, and updates a hcpOpenShiftcluster.
 func (s *Service) Reconcile(ctx context.Context) error {
-	ctx, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.Reconcile")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.Reconcile")
 	defer done()
 
 	// HcpOpenShiftClustersReadyCondition is set in the VM service.
@@ -91,6 +96,11 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	hcpOpenShiftClusterSpecs, ok := spec.(*HcpOpenShiftClustersSpec)
 	if !ok {
 		return errors.Errorf("%T is not of type HcpOpenShiftClusterSpecs", spec)
+	}
+
+	err := s.checkUserAssignedIdentities(ctx, log, hcpOpenShiftClusterSpecs)
+	if err != nil {
+		return errors.Wrap(err, "failed to check user assigned identities")
 	}
 
 	result, err := s.Client.Get(ctx, spec)
@@ -241,4 +251,44 @@ func (s *Service) validateSpec(ctx context.Context) error {
 // IsManaged returns always returns true as CAPZ does not support BYO HcpOpenShiftCluster.
 func (s *Service) IsManaged(_ context.Context) (bool, error) {
 	return true, nil
+}
+
+func (s *Service) checkUserAssignedIdentities(ctx context.Context, log logr.Logger, spec *HcpOpenShiftClustersSpec) error {
+	userAssignedIdentities, _ := spec.getManagedIdentities()
+
+	usedIdentities := map[string]bool{}
+	midsMap := []map[string]*string{
+		userAssignedIdentities.ControlPlaneOperators,
+		userAssignedIdentities.DataPlaneOperators,
+		{"": userAssignedIdentities.ServiceManagedIdentity},
+	}
+	for _, midMap := range midsMap {
+		for _, mid := range midMap {
+			if mid == nil || *mid == "" {
+				continue
+			}
+			usedIdentities[*mid] = true
+		}
+	}
+
+	for providerID, _ := range usedIdentities {
+		identitiesClient := s.identitiesGetter
+		parsed, err := azureutil.ParseResourceID(providerID)
+		if err != nil {
+			return err
+		}
+		if parsed.SubscriptionID != s.Scope.SubscriptionID() {
+			identitiesClient, err = identities.NewClientBySub(s.Scope, parsed.SubscriptionID)
+			if err != nil {
+				return errors.Wrapf(err, "failed to create identities client from subscription ID %s", parsed.SubscriptionID)
+			}
+		}
+		clientID, err := identitiesClient.GetClientID(ctx, providerID)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get client ID for %s", providerID)
+		}
+		log.V(6).Info(fmt.Sprintf("GetClientID(%s) -> %s", providerID, clientID))
+	}
+
+	return nil
 }
