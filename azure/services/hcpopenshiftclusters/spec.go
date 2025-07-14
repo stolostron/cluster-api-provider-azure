@@ -119,7 +119,7 @@ func (s *HcpOpenShiftClustersSpec) getManagedResourceGroup() *string {
 
 // getManagedResourceGroup - returns manager resource group name
 func (s *HcpOpenShiftClustersSpec) getOutboundType() (*arohcp.OutboundType, error) {
-	if s.OutboundType == "loadBalancer" {
+	if s.OutboundType == "LoadBalancer" {
 		outboundType := arohcp.OutboundTypeLoadBalancer
 		return &outboundType, nil
 	}
@@ -141,11 +141,11 @@ func (s *HcpOpenShiftClustersSpec) getNetworkType() (*arohcp.NetworkType, error)
 
 // getVisibility - returns visibility type
 func (s *HcpOpenShiftClustersSpec) getVisibility() (*arohcp.Visibility, error) {
-	if s.Visibility == "private" {
+	if s.Visibility == "Private" {
 		visibility := arohcp.VisibilityPrivate
 		return &visibility, nil
 	}
-	if s.Visibility == "public" {
+	if s.Visibility == "Public" {
 		visibility := arohcp.VisibilityPublic
 		return &visibility, nil
 	}
@@ -206,9 +206,8 @@ func (s *HcpOpenShiftClustersSpec) Parameters(_ context.Context, existing interf
 				ServiceCidr: &s.Network.ServiceCIDR,
 			},
 			Version: &arohcp.VersionProfile{
-				ChannelGroup:      ptr.To(string(s.ChannelGroup)),
-				ID:                &s.Version,
-				AvailableUpgrades: nil,
+				ChannelGroup: ptr.To(string(s.ChannelGroup)),
+				ID:           &s.Version,
 			},
 			API: &arohcp.APIProfile{
 				Visibility: visibility,

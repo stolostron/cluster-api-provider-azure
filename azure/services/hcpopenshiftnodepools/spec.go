@@ -155,9 +155,13 @@ func (s *HcpOpenShiftNodePoolSpec) Parameters(_ context.Context, existing interf
 			Platform: &arohcp.NodePoolPlatformProfile{
 				VMSize:                 ptr.To(s.AROMachinePoolSpec.Platform.VMSize),
 				AvailabilityZone:       s.getAvailabilityZone(),
-				DiskSizeGiB:            ptr.To(s.AROMachinePoolSpec.Platform.DiskSizeGiB),
-				DiskStorageAccountType: diskStorageAccountType,
-				SubnetID:               ptr.To(s.AROMachinePoolSpec.Platform.Subnet),
+				EnableEncryptionAtHost: nil,
+				OSDisk: &arohcp.OsDiskProfile{
+					EncryptionSetID:        nil,
+					SizeGiB:                ptr.To(s.AROMachinePoolSpec.Platform.DiskSizeGiB),
+					DiskStorageAccountType: diskStorageAccountType,
+				},
+				SubnetID: ptr.To(s.AROMachinePoolSpec.Platform.Subnet),
 			},
 			AutoRepair:  to.Ptr(s.AROMachinePoolSpec.AutoRepair),
 			AutoScaling: autoScaling,
@@ -165,9 +169,8 @@ func (s *HcpOpenShiftNodePoolSpec) Parameters(_ context.Context, existing interf
 			Replicas:    replicas,
 			Taints:      taints,
 			Version: &arohcp.NodePoolVersionProfile{
-				ChannelGroup:      ptr.To(string(s.AROMachinePoolSpec.ChannelGroup)),
-				ID:                ptr.To(s.AROMachinePoolSpec.Version),
-				AvailableUpgrades: nil,
+				ChannelGroup: ptr.To(string(s.AROMachinePoolSpec.ChannelGroup)),
+				ID:           ptr.To(s.AROMachinePoolSpec.Version),
 			},
 			// READ-ONLY: ProvisioningState: nil,
 		},
@@ -196,10 +199,10 @@ func (s *HcpOpenShiftNodePoolSpec) Parameters(_ context.Context, existing interf
 				if cmpPtr(existingNodePool.Properties.Platform.AvailabilityZone, ret.Properties.Platform.AvailabilityZone) {
 					changed = true
 				}
-				if cmpPtr(existingNodePool.Properties.Platform.DiskSizeGiB, ret.Properties.Platform.DiskSizeGiB) {
+				if cmpPtr(existingNodePool.Properties.Platform.OSDisk.SizeGiB, ret.Properties.Platform.OSDisk.SizeGiB) {
 					changed = true
 				}
-				if cmpPtr(existingNodePool.Properties.Platform.DiskStorageAccountType, ret.Properties.Platform.DiskStorageAccountType) {
+				if cmpPtr(existingNodePool.Properties.Platform.OSDisk.DiskStorageAccountType, ret.Properties.Platform.OSDisk.DiskStorageAccountType) {
 					changed = true
 				}
 				if cmpPtr(existingNodePool.Properties.Platform.SubnetID, ret.Properties.Platform.SubnetID) {
