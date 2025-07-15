@@ -19,7 +19,7 @@ package hcpopenshiftclusters
 import (
 	"context"
 	"fmt"
-	arohcp "github.com/marek-veber/ARO-HCP/external/api/v20240610preview/generated"
+	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"

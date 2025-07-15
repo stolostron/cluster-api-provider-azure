@@ -26,7 +26,7 @@ import (
 	"net/http"
 	"time"
 
-	arohcp "github.com/marek-veber/ARO-HCP/external/api/v20240610preview/generated"
+	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
 	"github.com/pkg/errors"
 
 	"sigs.k8s.io/cluster-api-provider-azure/azure"

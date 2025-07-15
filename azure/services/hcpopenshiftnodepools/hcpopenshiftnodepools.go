@@ -19,7 +19,7 @@ package hcpopenshiftnodepools
 import (
 	"context"
 	"fmt"
-	arohcp "github.com/marek-veber/ARO-HCP/external/api/v20240610preview/generated"
+	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
 	"github.com/pkg/errors"
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 

@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
 	azureutil "sigs.k8s.io/cluster-api-provider-azure/util/azure"
 
-	arohcp "github.com/marek-veber/ARO-HCP/external/api/v20240610preview/generated"
+	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
 
 	//infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
