@@ -265,7 +265,7 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 
 	// Set the values from the managed control plane
 	aroCluster.Spec.ControlPlaneEndpoint = endpoint
-	aroCluster.Status.Ready = !aroCluster.Spec.ControlPlaneEndpoint.IsZero()
+	aroCluster.Status.Ready = aroControlPlane.Status.Ready && !aroCluster.Spec.ControlPlaneEndpoint.IsZero()
 	if aroCluster.Status.Ready {
 		aroCluster.Status.Initialization = &infra.AROClusterInitializationStatus{Provisioned: true}
 		conditions.MarkTrue(aroCluster, v1beta1.NetworkInfrastructureReadyCondition)

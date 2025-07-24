@@ -671,7 +671,7 @@ func (s *AROControlPlaneScope) vnetId() string {
 	// /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/virtualNetworks/{vnetName}/subnets/{subnetName}
 	re := regexp.MustCompile("(/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/virtualNetworks/[^/]+)/subnets/[^/]+")
 	groups := re.FindStringSubmatch(s.ControlPlane.Spec.Platform.Subnet)
-	if groups == nil && len(groups) > 0 {
+	if groups == nil || len(groups) <= 1 {
 		return ""
 	}
 	return groups[1]
@@ -680,7 +680,7 @@ func (s *AROControlPlaneScope) vnetId() string {
 func (s *AROControlPlaneScope) vnetName() string {
 	re := regexp.MustCompile("/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/virtualNetworks/([^/]+)/subnets/[^/]+")
 	groups := re.FindStringSubmatch(s.ControlPlane.Spec.Platform.Subnet)
-	if groups == nil && len(groups) > 0 {
+	if groups == nil || len(groups) <= 1 {
 		return ""
 	}
 	return groups[1]
@@ -689,7 +689,7 @@ func (s *AROControlPlaneScope) vnetName() string {
 func (s *AROControlPlaneScope) subnetName() string {
 	re := regexp.MustCompile("/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/virtualNetworks/[^/]+/subnets/([^/]+)")
 	groups := re.FindStringSubmatch(s.ControlPlane.Spec.Platform.Subnet)
-	if groups == nil && len(groups) > 0 {
+	if groups == nil || len(groups) <= 1 {
 		return ""
 	}
 	return groups[1]
@@ -699,7 +699,7 @@ func (s *AROControlPlaneScope) securityGroupName() string {
 	// /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network/networkSecurityGroups/{networkSecurityGroupName}
 	re := regexp.MustCompile("/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.Network/networkSecurityGroups/([^/]+)")
 	groups := re.FindStringSubmatch(s.ControlPlane.Spec.Platform.NetworkSecurityGroupID)
-	if groups == nil && len(groups) > 0 {
+	if groups == nil || len(groups) <= 1 {
 		return ""
 	}
 	return groups[1]
