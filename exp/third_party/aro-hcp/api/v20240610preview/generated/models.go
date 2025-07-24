@@ -25,7 +25,7 @@ type AzureResourceManagerCommonTypesManagedServiceIdentityUpdate struct {
 	Type *ManagedServiceIdentityType
 
 	// The identities assigned to this resource by the user.
-	UserAssignedIdentities map[string]*Components19Kgb1NSchemasAzureResourcemanagerCommontypesManagedserviceidentityupdatePropertiesUserassignedidentitiesAdditionalproperties
+	UserAssignedIdentities map[string]*UserAssignedIdentity
 }
 
 // AzureResourceManagerCommonTypesTrackedResourceUpdate - The resource model definition for an Azure Resource Manager tracked
@@ -76,14 +76,6 @@ type ClusterImageRegistryProfile struct {
 	// ImageStream-backed image registry will be run as pods on worker nodes in the cluster. Disabled means the ImageStream-backed
 	// image registry will not be present in the cluster. The default is Enabled.
 	State *ClusterImageRegistryProfileState
-}
-
-type Components19Kgb1NSchemasAzureResourcemanagerCommontypesManagedserviceidentityupdatePropertiesUserassignedidentitiesAdditionalproperties struct {
-	// READ-ONLY; The client ID of the assigned identity.
-	ClientID *string
-
-	// READ-ONLY; The principal ID of the assigned identity.
-	PrincipalID *string
 }
 
 // ConsoleProfile - Configuration of the cluster web console
@@ -667,7 +659,8 @@ type NodePoolPlatformProfile struct {
 	// The settings and configuration options for OSDisk
 	OSDisk *OsDiskProfile
 
-	// The Azure resource ID of the worker subnet
+	// The Azure resource ID of the worker subnet Note that a subnet cannot be reused between ARO-HCP Clusters, however the same
+	// subnet can be used for NodePools of the same cluster.
 	SubnetID *string
 }
 
@@ -682,7 +675,8 @@ type NodePoolProperties struct {
 	// Representation of a autoscaling in a node pool.
 	AutoScaling *NodePoolAutoScaling
 
-	// Kubernetes labels to propagate to the NodePool Nodes
+	// Kubernetes labels to propagate to the NodePool Nodes Note that when the labels are updated this is only applied to newly
+	// create nodes in the Nodepool, existing node labels remain unchanged.
 	Labels []*Label
 
 	// nodeDrainTimeoutMinutes is the grace period for how long Pod Disruption Budget-protected workloads will be respected during
@@ -711,7 +705,8 @@ type NodePoolPropertiesUpdate struct {
 	// Representation of a autoscaling in a node pool.
 	AutoScaling *NodePoolAutoScaling
 
-	// Kubernetes labels to propagate to the NodePool Nodes
+	// Kubernetes labels to propagate to the NodePool Nodes Note that when the labels are updated this is only applied to newly
+	// create nodes in the Nodepool, existing node labels remain unchanged.
 	Labels []*Label
 
 	// nodeDrainTimeoutMinutes is the grace period for how long Pod Disruption Budget-protected workloads will be respected during
@@ -860,13 +855,14 @@ type OsDiskProfile struct {
 
 // PlatformProfile - Azure specific configuration
 type PlatformProfile struct {
-	// REQUIRED; ResourceId for the network security group attached to the cluster subnet
+	// REQUIRED; ResourceId for the NSG (network security group) attached to the cluster subnet
+	// Note that NSGs cannot be reused for other ARO-HCP clusters.
 	NetworkSecurityGroupID *string
 
 	// REQUIRED; The configuration that the operators of the cluster have to authenticate to Azure
 	OperatorsAuthentication *OperatorsAuthenticationProfile
 
-	// REQUIRED; The Azure resource ID of the worker subnet
+	// REQUIRED; The Azure resource ID of the worker subnet Note that a subnet cannot be reused between ARO-HCP Clusters.
 	SubnetID *string
 
 	// Resource group to put cluster resources
