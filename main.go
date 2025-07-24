@@ -61,7 +61,9 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/controllers"
+	cplanev1beta2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav1exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta1"
+	infrav1beta2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	infrav1controllersexp "sigs.k8s.io/cluster-api-provider-azure/exp/controllers"
 	"sigs.k8s.io/cluster-api-provider-azure/feature"
 	"sigs.k8s.io/cluster-api-provider-azure/pkg/coalescing"
@@ -80,6 +82,8 @@ func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = infrav1.AddToScheme(scheme)
 	_ = infrav1exp.AddToScheme(scheme)
+	_ = cplanev1beta2exp.AddToScheme(scheme)
+	_ = infrav1beta2exp.AddToScheme(scheme)
 	_ = clusterv1.AddToScheme(scheme)
 	_ = expv1.AddToScheme(scheme)
 	_ = kubeadmv1.AddToScheme(scheme)
@@ -626,6 +630,40 @@ func registerControllers(ctx context.Context, mgr manager.Manager) {
 		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: azureMachinePoolConcurrency}); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AgentPool")
 			os.Exit(1)
+		}
+	}
+	if feature.Gates.Enabled(feature.ARO) {
+		setupLog.Info("waiting for the debugger to connect")
+		time.Sleep(time.Second * 10)
+		if err := (&infrav1controllersexp.AROClusterReconciler{
+			Client:           mgr.GetClient(),
+			WatchFilterValue: watchFilterValue,
+		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: azureClusterConcurrency}); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "AROCluster")
+			os.Exit(1)
+		}
+
+		if err := (&infrav1controllersexp.AROControlPlaneReconciler{
+			Client:           mgr.GetClient(),
+			WatchFilterValue: watchFilterValue,
+			CredentialCache:  credCache,
+			Timeouts:         timeouts,
+		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: azureClusterConcurrency}); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "AROControlPlane")
+			os.Exit(1)
+		}
+
+		if feature.Gates.Enabled(capifeature.MachinePool) {
+			if err := infrav1controllersexp.NewAROMachinePoolReconciler(
+				mgr.GetClient(),
+				mgr.GetEventRecorderFor("aromachinepoolmachine-reconciler"),
+				timeouts,
+				watchFilterValue,
+				credCache,
+			).SetupWithManager(ctx, mgr, controllers.Options{Options: controller.Options{MaxConcurrentReconciles: azureClusterConcurrency}, Cache: clusterCache}); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "AROMachinePool")
+				os.Exit(1)
+			}
 		}
 	}
 }
