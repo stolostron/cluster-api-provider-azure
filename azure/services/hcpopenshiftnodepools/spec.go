@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 
+	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
@@ -32,11 +33,12 @@ import (
 
 // HcpOpenShiftNodePoolSpec defines the specification for a NodePool.
 type HcpOpenShiftNodePoolSpec struct {
-	ClusterName        string
-	Location           string
-	ResourceGroup      string
-	AROMachinePoolSpec v1beta2.AROMachinePoolSpec
-	MachinePoolSpec    expv1.MachinePoolSpec
+	ClusterName         string
+	Location            string
+	ResourceGroup       string
+	AROMachinePoolSpec  v1beta2.AROMachinePoolSpec
+	AROControlPlaneSpec cplane.AROControlPlaneSpec
+	MachinePoolSpec     expv1.MachinePoolSpec
 }
 
 // ResourceName returns the name of the NodePool.
@@ -168,7 +170,7 @@ func (s *HcpOpenShiftNodePoolSpec) Parameters(ctx context.Context, existing inte
 			Replicas:    replicas,
 			Taints:      taints,
 			Version: &arohcp.NodePoolVersionProfile{
-				ChannelGroup: ptr.To(string(s.AROMachinePoolSpec.ChannelGroup)),
+				ChannelGroup: ptr.To(string(s.AROControlPlaneSpec.ChannelGroup)),
 				ID:           ptr.To(s.AROMachinePoolSpec.Version),
 			},
 			// READ-ONLY: ProvisioningState: nil,

@@ -63,7 +63,6 @@ func TestAROMAchinePoolWebhook_Default(t *testing.T) {
 				},
 				Spec: AROMachinePoolSpec{
 					NodePoolName: tc.inputNodePoolName,
-					ChannelGroup: Stable,
 				},
 			}
 
@@ -140,7 +139,6 @@ func TestValidateOCPVersionAROMachinePool(t *testing.T) {
 				Spec: AROMachinePoolSpec{
 					NodePoolName: "test-pool",
 					Version:      tc.version,
-					ChannelGroup: Stable,
 				},
 			}
 

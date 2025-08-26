@@ -31,6 +31,7 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/async/mock_async"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftnodepools/mock_hcpopenshiftnodepools"
+	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
 	gomockinternal "sigs.k8s.io/cluster-api-provider-azure/internal/test/matchers/gomock"
@@ -290,15 +291,17 @@ func fakeHcpOpenShiftNodePoolSpec() *HcpOpenShiftNodePoolSpec {
 				AvailabilityZone:       "1",
 				Subnet:                 "/subscriptions/test/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
 			},
-			Version:      "4.19.0",
-			ChannelGroup: v1beta2.Stable,
-			AutoRepair:   true,
+			Version:    "4.19.0",
+			AutoRepair: true,
 			Labels: map[string]string{
 				"test-label": "test-value",
 			},
 			AdditionalTags: map[string]string{
 				"test-key": "test-value",
 			},
+		},
+		AROControlPlaneSpec: cplane.AROControlPlaneSpec{
+			ChannelGroup: "stable",
 		},
 		MachinePoolSpec: expv1.MachinePoolSpec{
 			Replicas: ptr.To[int32](3),
