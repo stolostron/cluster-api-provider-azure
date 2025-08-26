@@ -80,7 +80,7 @@ type AROControlPlaneSpec struct { //nolint: maligned
 
 	// OpenShift version channel group; default is stable.
 	//
-	// +kubebuilder:validation:Enum=stable;candidate;nightly
+	// +kubebuilder:validation:Enum=stable;candidate;nightly;fast;eus
 	// +kubebuilder:default=stable
 	ChannelGroup v1beta2.ChannelGroupType `json:"channelGroup"`
 
