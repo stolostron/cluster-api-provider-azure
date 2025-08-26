@@ -150,12 +150,6 @@ func (s *HcpOpenShiftNodePoolSpec) Parameters(ctx context.Context, existing inte
 	}
 	ret := arohcp.NodePool{
 		Location: ptr.To(s.Location),
-		//Identity: &arohcp.ManagedServiceIdentity{
-		//	Type:                   nil,
-		//	UserAssignedIdentities: nil,
-		//	PrincipalID:            nil,
-		//	TenantID:               nil,
-		// },
 		Properties: &arohcp.NodePoolProperties{
 			Platform: &arohcp.NodePoolPlatformProfile{
 				VMSize:                 ptr.To(s.AROMachinePoolSpec.Platform.VMSize),
