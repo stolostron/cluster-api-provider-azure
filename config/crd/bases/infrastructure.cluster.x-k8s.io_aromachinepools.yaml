@@ -80,14 +80,6 @@ spec:
                     minimum: 1
                     type: integer
                 type: object
-              channelGroup:
-                default: stable
-                description: OpenShift version channel group; default is stable.
-                enum:
-                - stable
-                - candidate
-                - nightly
-                type: string
               labels:
                 additionalProperties:
                   type: string
@@ -173,7 +165,6 @@ spec:
                   AROMachinePool version is used if not set.
                 type: string
             required:
-            - channelGroup
             - nodePoolName
             type: object
           status:

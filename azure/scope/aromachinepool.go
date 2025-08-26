@@ -116,11 +116,12 @@ type AROMachinePoolScope struct {
 // NodePoolSpecs returns the resource spec getter for node pools.
 func (s *AROMachinePoolScope) NodePoolSpecs(_ context.Context) azure.ResourceSpecGetter {
 	ret := &hcpopenshiftnodepools.HcpOpenShiftNodePoolSpec{
-		ClusterName:        s.ClusterName(),
-		Location:           s.Location(),
-		ResourceGroup:      s.ResourceGroup(),
-		AROMachinePoolSpec: s.InfraMachinePool.Spec,
-		MachinePoolSpec:    s.MachinePool.Spec,
+		ClusterName:         s.ClusterName(),
+		Location:            s.Location(),
+		ResourceGroup:       s.ResourceGroup(),
+		AROMachinePoolSpec:  s.InfraMachinePool.Spec,
+		AROControlPlaneSpec: s.ControlPlane.Spec,
+		MachinePoolSpec:     s.MachinePool.Spec,
 	}
 	return ret
 }

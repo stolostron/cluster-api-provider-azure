@@ -197,7 +197,6 @@ func TestAROMachinePoolReconciler_Reconcile(t *testing.T) {
 				Spec: infrav2exp.AROMachinePoolSpec{
 					NodePoolName: testMachinePoolName,
 					Version:      "4.19.0",
-					ChannelGroup: "stable",
 					Platform: infrav2exp.AROPlatformProfileMachinePool{
 						VMSize:           "Standard_D2s_v3",
 						DiskSizeGiB:      30,
@@ -395,7 +394,6 @@ func TestAROMachinePoolReconciler_reconcileDelete(t *testing.T) {
 				Spec: infrav2exp.AROMachinePoolSpec{
 					NodePoolName: testMachinePoolName,
 					Version:      "4.19.0",
-					ChannelGroup: "stable",
 					Platform: infrav2exp.AROPlatformProfileMachinePool{
 						VMSize:           "Standard_D2s_v3",
 						DiskSizeGiB:      30,
