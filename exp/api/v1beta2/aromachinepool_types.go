@@ -41,12 +41,6 @@ type AROMachinePoolSpec struct {
 	// +optional
 	Version string `json:"version,omitempty"`
 
-	// OpenShift version channel group; default is stable.
-	//
-	// +kubebuilder:validation:Enum=stable;candidate;nightly
-	// +kubebuilder:default=stable
-	ChannelGroup ChannelGroupType `json:"channelGroup"`
-
 	// AROPlatformProfileMachinePool represents the NodePool Azure platform configuration.
 	Platform AROPlatformProfileMachinePool `json:"platform,omitempty"`
 

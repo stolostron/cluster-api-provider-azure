@@ -69,7 +69,7 @@ const (
 type roleDEF string
 
 const (
-	// Custom ARO HCP roles
+	// Custom ARO HCP roles.
 	roleHCPClusterAPIProvider     = roleDEF("88366f10-ed47-4cc0-9fab-c8a06148393e") // HCP Cluster API Provider - https://www.azadvertizer.net/azrolesadvertizer/88366f10-ed47-4cc0-9fab-c8a06148393e
 	roleHCPControlPlaneOperator   = roleDEF("fc0c873f-45e9-4d0d-a7d1-585aab30c6ed") // HCP Control Plane Operator - https://www.azadvertizer.net/azrolesadvertizer/fc0c873f-45e9-4d0d-a7d1-585aab30c6ed
 	roleCloudControllerManager    = roleDEF("a1f96423-95ce-4224-ab27-4e3dc72facd4") // Cloud Controller Manager - https://www.azadvertizer.net/azrolesadvertizer/a1f96423-95ce-4224-ab27-4e3dc72facd4
@@ -79,7 +79,7 @@ const (
 	roleFederatedCredentials      = roleDEF("ef318e2a-8334-4a05-9e4a-295a196c6a6e") // Federated Credentials - https://www.azadvertizer.net/azrolesadvertizer/ef318e2a-8334-4a05-9e4a-295a196c6a6e
 	roleHCPServiceManagedIdentity = roleDEF("c0ff367d-66d8-445e-917c-583feb0ef0d4") // HCP Service Managed Identity - https://www.azadvertizer.net/azrolesadvertizer/c0ff367d-66d8-445e-917c-583feb0ef0d4
 
-	// Azure built-in roles
+	// Azure built-in roles.
 	roleReader             = roleDEF("acdd72a7-3385-48ef-bd42-f606fba81ae7") // Reader - https://www.azadvertizer.net/azrolesadvertizer/acdd72a7-3385-48ef-bd42-f606fba81ae7
 	roleKeyVaultCryptoUser = roleDEF("12338af0-0e69-4776-bea7-57ae8d297424") // Key Vault Crypto User - https://www.azadvertizer.net/azrolesadvertizer/12338af0-0e69-4776-bea7-57ae8d297424
 )
