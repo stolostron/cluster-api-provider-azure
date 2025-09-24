@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
-	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
+	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 	gomockinternal "sigs.k8s.io/cluster-api-provider-azure/internal/test/matchers/gomock"
 	"sigs.k8s.io/cluster-api-provider-azure/util/reconciler"
 )
@@ -377,9 +377,9 @@ func fakeHcpOpenShiftCluster() arohcp.HcpOpenShiftCluster {
 			Network: &arohcp.NetworkProfile{
 				NetworkType: &networkType,
 				HostPrefix:  ptr.To(int32(23)),
-				MachineCidr: ptr.To("10.0.0.0/16"),
-				PodCidr:     ptr.To("10.128.0.0/14"),
-				ServiceCidr: ptr.To("172.30.0.0/16"),
+				MachineCIDR: ptr.To("10.0.0.0/16"),
+				PodCIDR:     ptr.To("10.128.0.0/14"),
+				ServiceCIDR: ptr.To("172.30.0.0/16"),
 			},
 			Version: &arohcp.VersionProfile{
 				ChannelGroup: ptr.To("stable"),
