@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftnodepools/mock_hcpopenshiftnodepools"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
-	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
+	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 	gomockinternal "sigs.k8s.io/cluster-api-provider-azure/internal/test/matchers/gomock"
 	"sigs.k8s.io/cluster-api-provider-azure/util/reconciler"
 )

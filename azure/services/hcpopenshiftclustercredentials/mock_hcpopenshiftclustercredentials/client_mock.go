@@ -32,7 +32,7 @@ import (
 	runtime "github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	gomock "go.uber.org/mock/gomock"
 	azure "sigs.k8s.io/cluster-api-provider-azure/azure"
-	generated "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
+	generated "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 )
 
 // MockClient is a mock of Client interface.

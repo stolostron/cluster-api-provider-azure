@@ -25,7 +25,7 @@ import (
 
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
-	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/generated"
+	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
@@ -237,9 +237,9 @@ func (s *HcpOpenShiftClustersSpec) Parameters(ctx context.Context, existing inte
 			Network: &arohcp.NetworkProfile{
 				NetworkType: networkType,
 				HostPrefix:  ptr.To(int32(s.Network.HostPrefix)),
-				MachineCidr: &s.Network.MachineCIDR,
-				PodCidr:     &s.Network.PodCIDR,
-				ServiceCidr: &s.Network.ServiceCIDR,
+				MachineCIDR: &s.Network.MachineCIDR,
+				PodCIDR:     &s.Network.PodCIDR,
+				ServiceCIDR: &s.Network.ServiceCIDR,
 			},
 			// NodeDrainTimeoutMinutes: nil,
 			Version: &arohcp.VersionProfile{
@@ -281,9 +281,9 @@ func (s *HcpOpenShiftClustersSpec) Parameters(ctx context.Context, existing inte
 			} else {
 				checkImmutable("properties.network.networkType", &existingHcpOpenShiftCluster.Properties.Network.NetworkType, &ret.Properties.Network.NetworkType, &immutable)
 				checkImmutable("properties.network.hostPrefix", &existingHcpOpenShiftCluster.Properties.Network.HostPrefix, &ret.Properties.Network.HostPrefix, &immutable)
-				checkImmutable("properties.network.machineCidr", &existingHcpOpenShiftCluster.Properties.Network.MachineCidr, &ret.Properties.Network.MachineCidr, &immutable)
-				checkImmutable("properties.network.podCidr", &existingHcpOpenShiftCluster.Properties.Network.PodCidr, &ret.Properties.Network.PodCidr, &immutable)
-				checkImmutable("properties.network.serviceCidr", &existingHcpOpenShiftCluster.Properties.Network.ServiceCidr, &ret.Properties.Network.ServiceCidr, &immutable)
+				checkImmutable("properties.network.machineCidr", &existingHcpOpenShiftCluster.Properties.Network.MachineCIDR, &ret.Properties.Network.MachineCIDR, &immutable)
+				checkImmutable("properties.network.podCidr", &existingHcpOpenShiftCluster.Properties.Network.PodCIDR, &ret.Properties.Network.PodCIDR, &immutable)
+				checkImmutable("properties.network.serviceCidr", &existingHcpOpenShiftCluster.Properties.Network.ServiceCIDR, &ret.Properties.Network.ServiceCIDR, &immutable)
 			}
 			if existingHcpOpenShiftCluster.Properties.Version == nil {
 				changes = append(changes, "adding properties.version: nil -> new value")

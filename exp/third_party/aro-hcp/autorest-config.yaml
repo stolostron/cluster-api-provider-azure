@@ -2,7 +2,7 @@ input-file: https://raw.githubusercontent.com/Azure/ARO-HCP/refs/heads/main/api/
 go:
   namespace: redhatopenshift
   project-folder: ./
-  output-folder: $(project-folder)/api/v20240610preview/generated
+  output-folder: $(project-folder)/api/v20240610preview/armredhatopenshifthcp
   disallow-unknown-fields: true
   # azure-arm forces a go.mod file to be written to output-folder,
   # so naturally it requires module and module-version options.
