@@ -18,10 +18,8 @@ package hcpopenshiftclusters
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/pkg/errors"
@@ -51,34 +49,12 @@ var _ Client = &azureClient{}
 
 // newClient creates a new AROCluster client from an authorizer.
 func newClient(auth azure.Authorizer, apiCallTimeout time.Duration) (*azureClient, error) {
-	isDevel := false
 	var extraPolicies []policy.Policy
-	if isDevel {
-		now := time.Now()
-		extraPolicies = append(extraPolicies, azure.CustomPutPatchHeaderPolicy{
-			Headers: map[string]string{
-				"X-Ms-Arm-Resource-System-Data": fmt.Sprintf(`{"createdBy": "mveber", "createdByType": "User", "createdAt": %q}`,
-					now.Format(time.RFC3339),
-				),
-				"X-Ms-Identity-Url": "https://dummyhost.identity.azure.net",
-			},
-		})
-	}
-
 	opts, err := azure.ARMClientOptions(auth.CloudEnvironment(), extraPolicies...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hcpopenshiftclusters client options")
 	}
 	cred := auth.Token()
-	if isDevel {
-		opts.InsecureAllowCredentialWithHTTP = true
-		opts.Cloud.Services = map[cloud.ServiceName]cloud.ServiceConfiguration{
-			"resourceManager": {
-				Audience: opts.Cloud.Services["resourceManager"].Audience,
-				Endpoint: "http://192.168.122.1:8443/",
-			},
-		}
-	}
 	factory, err := arohcp.NewClientFactory(auth.SubscriptionID(), cred, opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create hcpopenshiftclusters client factory")
