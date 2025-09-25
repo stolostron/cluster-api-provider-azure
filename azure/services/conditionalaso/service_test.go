@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package managemissing
+package conditionalaso
 
 import (
 	"testing"
@@ -27,7 +27,7 @@ func TestPackage(t *testing.T) {
 	g := NewWithT(t)
 
 	// Test that the package can be imported and basic functionality is accessible.
-	// The managemissing service is a generic service that depends on complex
+	// The conditionalaso service is a generic service that depends on complex
 	// ASO interfaces and types, making comprehensive unit testing challenging
 	// without extensive mocking infrastructure.
 	//

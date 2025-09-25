@@ -24,7 +24,7 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/managemissing"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/conditionalaso"
 	"sigs.k8s.io/cluster-api-provider-azure/util/slice"
 )
 
@@ -32,13 +32,13 @@ const serviceName = "roleassignmentsaso"
 
 // KubernetesRoleAssignmentScope defines the scope interface for a Kubernetes role assignment service.
 type KubernetesRoleAssignmentScope interface {
-	managemissing.Scope
+	conditionalaso.Scope
 	KubernetesRoleAssignmentSpecs() []azure.ASOResourceSpecGetter[*asoauthorizationv1api20220401.RoleAssignment]
 }
 
 // New creates a new service.
-func New(scope KubernetesRoleAssignmentScope) *managemissing.Service[*asoauthorizationv1api20220401.RoleAssignment, KubernetesRoleAssignmentScope] {
-	svc := managemissing.NewService[*asoauthorizationv1api20220401.RoleAssignment, KubernetesRoleAssignmentScope](serviceName, scope)
+func New(scope KubernetesRoleAssignmentScope) *conditionalaso.Service[*asoauthorizationv1api20220401.RoleAssignment, KubernetesRoleAssignmentScope] {
+	svc := conditionalaso.NewService[*asoauthorizationv1api20220401.RoleAssignment, KubernetesRoleAssignmentScope](serviceName, scope)
 	svc.ListFunc = list
 	svc.Specs = scope.KubernetesRoleAssignmentSpecs()
 	svc.ConditionType = infrav1.RoleAssignmentReadyCondition

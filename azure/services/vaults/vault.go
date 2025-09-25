@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/managemissing"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/conditionalaso"
 	"sigs.k8s.io/cluster-api-provider-azure/util/slice"
 )
 
@@ -36,7 +36,7 @@ const (
 
 // KeyVaultScope defines the scope interface for a key vault service.
 type KeyVaultScope interface {
-	managemissing.Scope
+	conditionalaso.Scope
 	VaultSpecs() []azure.ASOResourceSpecGetter[*v1api20230701.Vault]
 }
 
@@ -46,8 +46,8 @@ type Service struct {
 }
 
 // New creates a new service.
-func New(scope KeyVaultScope) *managemissing.Service[*v1api20230701.Vault, KeyVaultScope] {
-	svc := managemissing.NewService[*v1api20230701.Vault, KeyVaultScope](serviceName, scope)
+func New(scope KeyVaultScope) *conditionalaso.Service[*v1api20230701.Vault, KeyVaultScope] {
+	svc := conditionalaso.NewService[*v1api20230701.Vault, KeyVaultScope](serviceName, scope)
 	svc.ListFunc = list
 	svc.Specs = scope.VaultSpecs()
 	svc.ConditionType = VaultReadyCondition

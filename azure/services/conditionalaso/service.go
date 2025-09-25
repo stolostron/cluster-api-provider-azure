@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package managemissing
+package conditionalaso
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func (s *Service[T, S]) Reconcile(ctx context.Context) error {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "aso.Service.Reconcile")
 	defer done()
 
-	// TODO: mveber - Use a longer timeout for managemissing service to handle rate limiting
+	// TODO: mveber - Use a longer timeout for conditionalaso service to handle rate limiting
 	timeout := s.Scope.DefaultedAzureServiceReconcileTimeout()
 	if timeout < 120*time.Second {
 		timeout = 120 * time.Second // Minimum 1 minute for rate-limited operations
