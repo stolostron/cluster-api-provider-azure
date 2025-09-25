@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/managemissing"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/conditionalaso"
 	"sigs.k8s.io/cluster-api-provider-azure/util/slice"
 )
 
@@ -36,13 +36,13 @@ const (
 
 // NetworkSecurityGroupScope defines the scope interface for a Kubernetes role assignment service.
 type NetworkSecurityGroupScope interface {
-	managemissing.Scope
+	conditionalaso.Scope
 	NetworkSecurityGroupSpecs() []azure.ASOResourceSpecGetter[*v1api20201101.NetworkSecurityGroup]
 }
 
 // New creates a new service.
-func New(scope NetworkSecurityGroupScope) *managemissing.Service[*v1api20201101.NetworkSecurityGroup, NetworkSecurityGroupScope] {
-	svc := managemissing.NewService[*v1api20201101.NetworkSecurityGroup, NetworkSecurityGroupScope](serviceName, scope)
+func New(scope NetworkSecurityGroupScope) *conditionalaso.Service[*v1api20201101.NetworkSecurityGroup, NetworkSecurityGroupScope] {
+	svc := conditionalaso.NewService[*v1api20201101.NetworkSecurityGroup, NetworkSecurityGroupScope](serviceName, scope)
 	svc.ListFunc = list
 	svc.Specs = scope.NetworkSecurityGroupSpecs()
 	svc.ConditionType = NetworkSecurityGroupsCondition

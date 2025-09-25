@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/managemissing"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/conditionalaso"
 	"sigs.k8s.io/cluster-api-provider-azure/util/slice"
 )
 
@@ -36,13 +36,13 @@ const (
 
 // UserAssignedIdentityScope defines the scope interface for a user assigned identity service.
 type UserAssignedIdentityScope interface {
-	managemissing.Scope
+	conditionalaso.Scope
 	UserAssignedIdentitySpecs() []azure.ASOResourceSpecGetter[*v1api20230131.UserAssignedIdentity]
 }
 
 // New creates a new service.
-func New(scope UserAssignedIdentityScope) *managemissing.Service[*v1api20230131.UserAssignedIdentity, UserAssignedIdentityScope] {
-	svc := managemissing.NewService[*v1api20230131.UserAssignedIdentity, UserAssignedIdentityScope](serviceName, scope)
+func New(scope UserAssignedIdentityScope) *conditionalaso.Service[*v1api20230131.UserAssignedIdentity, UserAssignedIdentityScope] {
+	svc := conditionalaso.NewService[*v1api20230131.UserAssignedIdentity, UserAssignedIdentityScope](serviceName, scope)
 	svc.ListFunc = list
 	svc.Specs = scope.UserAssignedIdentitySpecs()
 	svc.ConditionType = UserIdentitiesReadyCondition
