@@ -454,14 +454,6 @@ func (s *AROControlPlaneScope) MakeClusterCA() *corev1.Secret {
 // StoreClusterInfo stores the discovery cluster-info configmap in the kube-public namespace on the AKS cluster so kubeadm can access it to join nodes.
 // This method now avoids direct cluster connections to prevent reliability issues with stale kubeconfigs.
 func (s *AROControlPlaneScope) StoreClusterInfo(_ context.Context, _ []byte) error {
-	// Skip cluster-info creation if we don't have a valid control plane endpoint
-	// This avoids the need for remote cluster connections during kubeconfig reconciliation
-	if s.ControlPlaneEndpoint.Host == "" || s.ControlPlaneEndpoint.Port == 0 {
-		// Log that we're skipping this step but don't fail the reconciliation
-		// The cluster-info will be created when the control plane is ready
-		return nil
-	}
-
 	// For ARO clusters, we typically don't need to create cluster-info configmaps
 	// as ARO manages this internally. This method is kept for compatibility
 	// but we avoid remote connections to prevent kubeconfig validation issues.
