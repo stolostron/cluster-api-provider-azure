@@ -32,7 +32,7 @@ import (
 	runtime "github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	gomock "go.uber.org/mock/gomock"
 	azure "sigs.k8s.io/cluster-api-provider-azure/azure"
-	generated "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
+	armredhatopenshifthcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 )
 
 // MockClient is a mock of Client interface.
@@ -60,11 +60,11 @@ func (m *MockClient) EXPECT() *MockClientMockRecorder {
 }
 
 // CreateOrUpdateAsync mocks base method.
-func (m *MockClient) CreateOrUpdateAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string, parameters any) (any, *runtime.Poller[generated.HcpOpenShiftClustersClientCreateOrUpdateResponse], error) {
+func (m *MockClient) CreateOrUpdateAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string, parameters any) (any, *runtime.Poller[armredhatopenshifthcp.HcpOpenShiftClustersClientCreateOrUpdateResponse], error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateOrUpdateAsync", ctx, spec, resumeToken, parameters)
 	ret0, _ := ret[0].(any)
-	ret1, _ := ret[1].(*runtime.Poller[generated.HcpOpenShiftClustersClientCreateOrUpdateResponse])
+	ret1, _ := ret[1].(*runtime.Poller[armredhatopenshifthcp.HcpOpenShiftClustersClientCreateOrUpdateResponse])
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -76,10 +76,10 @@ func (mr *MockClientMockRecorder) CreateOrUpdateAsync(ctx, spec, resumeToken, pa
 }
 
 // DeleteAsync mocks base method.
-func (m *MockClient) DeleteAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string) (*runtime.Poller[generated.HcpOpenShiftClustersClientDeleteResponse], error) {
+func (m *MockClient) DeleteAsync(ctx context.Context, spec azure.ResourceSpecGetter, resumeToken string) (*runtime.Poller[armredhatopenshifthcp.HcpOpenShiftClustersClientDeleteResponse], error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeleteAsync", ctx, spec, resumeToken)
-	ret0, _ := ret[0].(*runtime.Poller[generated.HcpOpenShiftClustersClientDeleteResponse])
+	ret0, _ := ret[0].(*runtime.Poller[armredhatopenshifthcp.HcpOpenShiftClustersClientDeleteResponse])
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -106,10 +106,10 @@ func (mr *MockClientMockRecorder) Get(arg0, arg1 any) *gomock.Call {
 }
 
 // List mocks base method.
-func (m *MockClient) List(arg0 context.Context, arg1 string) ([]generated.HcpOpenShiftCluster, error) {
+func (m *MockClient) List(arg0 context.Context, arg1 string) ([]armredhatopenshifthcp.HcpOpenShiftCluster, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "List", arg0, arg1)
-	ret0, _ := ret[0].([]generated.HcpOpenShiftCluster)
+	ret0, _ := ret[0].([]armredhatopenshifthcp.HcpOpenShiftCluster)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

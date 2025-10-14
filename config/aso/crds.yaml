@@ -3,10 +3,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: bastionhosts.network.azure.com
 spec:
   conversion:
@@ -22,9 +22,6 @@ spec:
         - v1
   group: network.azure.com
   names:
-    categories:
-      - azure
-      - network
     kind: BastionHost
     listKind: BastionHostList
     plural: bastionhosts
@@ -1703,10 +1700,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: extensions.kubernetesconfiguration.azure.com
 spec:
   conversion:
@@ -1722,9 +1719,6 @@ spec:
         - v1
   group: kubernetesconfiguration.azure.com
   names:
-    categories:
-      - azure
-      - kubernetesconfiguration
     kind: Extension
     listKind: ExtensionList
     plural: extensions
@@ -4179,10 +4173,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: fleetsmembers.containerservice.azure.com
 spec:
   conversion:
@@ -4198,9 +4192,6 @@ spec:
         - v1
   group: containerservice.azure.com
   names:
-    categories:
-      - azure
-      - containerservice
     kind: FleetsMember
     listKind: FleetsMemberList
     plural: fleetsmembers
@@ -4744,10 +4735,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: managedclusters.containerservice.azure.com
 spec:
   conversion:
@@ -4763,9 +4754,6 @@ spec:
         - v1
   group: containerservice.azure.com
   names:
-    categories:
-      - azure
-      - containerservice
     kind: ManagedCluster
     listKind: ManagedClusterList
     plural: managedclusters
@@ -45730,10 +45718,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: managedclustersagentpools.containerservice.azure.com
 spec:
   conversion:
@@ -45749,9 +45737,6 @@ spec:
         - v1
   group: containerservice.azure.com
   names:
-    categories:
-      - azure
-      - containerservice
     kind: ManagedClustersAgentPool
     listKind: ManagedClustersAgentPoolList
     plural: managedclustersagentpools
@@ -58630,10 +58615,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: natgateways.network.azure.com
 spec:
   conversion:
@@ -58649,9 +58634,6 @@ spec:
         - v1
   group: network.azure.com
   names:
-    categories:
-      - azure
-      - network
     kind: NatGateway
     listKind: NatGatewayList
     plural: natgateways
@@ -60107,10 +60089,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: privateendpoints.network.azure.com
 spec:
   conversion:
@@ -60126,9 +60108,6 @@ spec:
         - v1
   group: network.azure.com
   names:
-    categories:
-      - azure
-      - network
     kind: PrivateEndpoint
     listKind: PrivateEndpointList
     plural: privateendpoints
@@ -62790,10 +62769,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: resourcegroups.resources.azure.com
 spec:
   conversion:
@@ -62809,9 +62788,6 @@ spec:
         - v1
   group: resources.azure.com
   names:
-    categories:
-      - azure
-      - resources
     kind: ResourceGroup
     listKind: ResourceGroupList
     plural: resourcegroups
@@ -63262,10 +63238,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: roleassignments.authorization.azure.com
 spec:
   conversion:
@@ -63281,9 +63257,6 @@ spec:
         - v1
   group: authorization.azure.com
   names:
-    categories:
-      - azure
-      - authorization
     kind: RoleAssignment
     listKind: RoleAssignmentList
     plural: roleassignments
@@ -64564,10 +64537,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: userassignedidentities.managedidentity.azure.com
 spec:
   conversion:
@@ -64583,9 +64556,6 @@ spec:
         - v1
   group: managedidentity.azure.com
   names:
-    categories:
-      - azure
-      - managedidentity
     kind: UserAssignedIdentity
     listKind: UserAssignedIdentityList
     plural: userassignedidentities
@@ -65874,10 +65844,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: virtualnetworks.network.azure.com
 spec:
   conversion:
@@ -65893,9 +65863,6 @@ spec:
         - v1
   group: network.azure.com
   names:
-    categories:
-      - azure
-      - network
     kind: VirtualNetwork
     listKind: VirtualNetworkList
     plural: virtualnetworks
@@ -67723,10 +67690,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: azureserviceoperator-system/azureserviceoperator-serving-cert
-    controller-gen.kubebuilder.io/version: v0.17.3
+    controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.15.0
+    app.kubernetes.io/version: v2.13.0
   name: virtualnetworkssubnets.network.azure.com
 spec:
   conversion:
@@ -67742,9 +67709,6 @@ spec:
         - v1
   group: network.azure.com
   names:
-    categories:
-      - azure
-      - network
     kind: VirtualNetworksSubnet
     listKind: VirtualNetworksSubnetList
     plural: virtualnetworkssubnets

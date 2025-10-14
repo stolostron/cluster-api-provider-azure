@@ -34,7 +34,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 	v1beta1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	azure "sigs.k8s.io/cluster-api-provider-azure/azure"
-	generated "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
+	armredhatopenshifthcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 	v1beta10 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
@@ -215,7 +215,7 @@ func (mr *MockHcpOpenShiftClusterScopeMockRecorder) HcpOpenShiftClusterSpecs(arg
 }
 
 // SetAPIURL mocks base method.
-func (m *MockHcpOpenShiftClusterScope) SetAPIURL(url *string, visibility *generated.Visibility) {
+func (m *MockHcpOpenShiftClusterScope) SetAPIURL(url *string, visibility *armredhatopenshifthcp.Visibility) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetAPIURL", url, visibility)
 }
@@ -239,7 +239,7 @@ func (mr *MockHcpOpenShiftClusterScopeMockRecorder) SetLongRunningOperationState
 }
 
 // SetProvisioningState mocks base method.
-func (m *MockHcpOpenShiftClusterScope) SetProvisioningState(state *generated.ProvisioningState) {
+func (m *MockHcpOpenShiftClusterScope) SetProvisioningState(state *armredhatopenshifthcp.ProvisioningState) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetProvisioningState", state)
 }
@@ -251,7 +251,7 @@ func (mr *MockHcpOpenShiftClusterScopeMockRecorder) SetProvisioningState(state a
 }
 
 // SetStatusVersion mocks base method.
-func (m *MockHcpOpenShiftClusterScope) SetStatusVersion(version *generated.VersionProfile) {
+func (m *MockHcpOpenShiftClusterScope) SetStatusVersion(version *armredhatopenshifthcp.VersionProfile) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetStatusVersion", version)
 }

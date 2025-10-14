@@ -34,7 +34,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 	v1beta1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	azure "sigs.k8s.io/cluster-api-provider-azure/azure"
-	generated "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
+	armredhatopenshifthcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 	v1beta10 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
@@ -227,7 +227,7 @@ func (mr *MockHcpOpenShiftNodePoolScopeMockRecorder) SetLongRunningOperationStat
 }
 
 // SetProvisioningState mocks base method.
-func (m *MockHcpOpenShiftNodePoolScope) SetProvisioningState(state *generated.ProvisioningState) {
+func (m *MockHcpOpenShiftNodePoolScope) SetProvisioningState(state *armredhatopenshifthcp.ProvisioningState) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetProvisioningState", state)
 }
@@ -239,7 +239,7 @@ func (mr *MockHcpOpenShiftNodePoolScopeMockRecorder) SetProvisioningState(state 
 }
 
 // SetStatusVersion mocks base method.
-func (m *MockHcpOpenShiftNodePoolScope) SetStatusVersion(version *generated.NodePoolVersionProfile) {
+func (m *MockHcpOpenShiftNodePoolScope) SetStatusVersion(version *armredhatopenshifthcp.NodePoolVersionProfile) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetStatusVersion", version)
 }
