@@ -168,8 +168,10 @@ func (s *KubernetesRoleAssignmentSpec) Parameters(_ context.Context, existing *a
 			Key:  s.PrincipalIDConfigMapKey,
 		},
 		PrincipalType: (*asoauthorizationv1api20220401.RoleAssignmentProperties_PrincipalType)(ptr.To(s.PrincipalType)),
-		RoleDefinitionReference: &genruntime.ResourceReference{
-			ARMID: s.RoleDefinitionReference,
+		RoleDefinitionReference: &genruntime.WellKnownResourceReference{
+			ResourceReference: genruntime.ResourceReference{
+				ARMID: s.RoleDefinitionReference,
+			},
 		},
 	}
 
