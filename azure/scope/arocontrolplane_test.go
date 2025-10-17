@@ -698,6 +698,9 @@ func TestAROControlPlaneScope_ShouldReconcileKubeconfig(t *testing.T) {
 					Name:              secret.Name(cluster.Name, secret.Kubeconfig),
 					Namespace:         cluster.Namespace,
 					CreationTimestamp: metav1.Now(),
+				Annotations: map[string]string{
+					"aro.azure.com/kubeconfig-last-updated": time.Now().Format(time.RFC3339),
+				},
 				},
 				Data: map[string][]byte{
 					secret.KubeconfigDataName: []byte("fake-kubeconfig"),

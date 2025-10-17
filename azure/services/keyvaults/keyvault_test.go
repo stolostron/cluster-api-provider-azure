@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/keyvaults/mock_keyvault"
 	gomockinternal "sigs.k8s.io/cluster-api-provider-azure/internal/test/matchers/gomock"
-	"sigs.k8s.io/cluster-api-provider-azure/util/reconciler"
 )
 
 var (
@@ -109,7 +108,6 @@ func TestReconcileKeyVault(t *testing.T) {
 			name:          "no key vault specs",
 			expectedError: "",
 			expect: func(s *mock_keyvault.MockKeyVaultScopeMockRecorder, c *mock_keyvault.MockClientMockRecorder) {
-				s.DefaultedAzureCallTimeout().Return(reconciler.DefaultAzureServiceReconcileTimeout)
 				s.KeyVaultSpecs().Return([]azure.ResourceSpecGetter{})
 			},
 		},
@@ -117,7 +115,6 @@ func TestReconcileKeyVault(t *testing.T) {
 			name:          "key vault does not exist - should fail",
 			expectedError: "failed to get KeyVault test-keyvault:",
 			expect: func(s *mock_keyvault.MockKeyVaultScopeMockRecorder, c *mock_keyvault.MockClientMockRecorder) {
-				s.DefaultedAzureCallTimeout().Return(reconciler.DefaultAzureServiceReconcileTimeout)
 				s.KeyVaultSpecs().Return([]azure.ResourceSpecGetter{&fakeKeyVaultSpec})
 				c.Get(gomockinternal.AContext(), &fakeKeyVaultSpec).Return(nil, newNotFoundError())
 			},

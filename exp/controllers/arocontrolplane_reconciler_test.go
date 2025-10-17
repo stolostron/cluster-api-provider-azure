@@ -192,7 +192,7 @@ func TestNewAROControlPlaneService(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(service).NotTo(BeNil())
 	g.Expect(service.scope).To(Equal(aroScope))
-	g.Expect(service.services).To(HaveLen(10)) // groups, networksecuritygroups, virtualnetworks, subnets, vaults, keyvaults, userassignedidentities, roleassignmentsaso, hcpopenshiftclusters, hcpopenshiftclustercredentials
+	g.Expect(service.services).To(HaveLen(9)) // groups, networksecuritygroups, virtualnetworks, subnets, vaults, keyvaults, userassignedidentities, roleassignmentsaso, hcpopenshiftclusters (ASO-based)
 	g.Expect(service.skuCache).NotTo(BeNil())
 	g.Expect(service.Reconcile).NotTo(BeNil())
 	g.Expect(service.Pause).NotTo(BeNil())
@@ -524,7 +524,7 @@ users:
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			aroScope, fakeClient := createTestScopeWithOptions(t, &tc.kubeconfigData, false)
+			aroScope, fakeClient := createTestScopeWithOptions(t, &tc.kubeconfigData, true)
 
 			service := &aroControlPlaneService{
 				scope:      aroScope,

@@ -445,7 +445,6 @@ func TestGetTokenCredential(t *testing.T) {
 			},
 			cacheExpect: func(t *testing.T, cache *mock_azure.MockCredentialCache) {
 				t.Helper()
-				ctx := t.Context()
 				credsPath := "../../test/setup/credentials.json" //nolint:gosec
 				clientOptions := azcore.ClientOptions{
 					Cloud: cloud.Configuration{
@@ -458,7 +457,7 @@ func TestGetTokenCredential(t *testing.T) {
 						},
 					},
 				}
-				cache.EXPECT().GetOrStoreUserAssignedManagedIdentityCredentials(ctx, credsPath, gomock.Cond(func(opts azcore.ClientOptions) bool {
+				cache.EXPECT().GetOrStoreUserAssignedManagedIdentityCredentials(gomock.Any(), credsPath, gomock.Cond(func(opts azcore.ClientOptions) bool {
 					return opts.Cloud.ActiveDirectoryAuthorityHost == clientOptions.Cloud.ActiveDirectoryAuthorityHost &&
 						opts.Cloud.Services[cloud.ResourceManager].Audience == clientOptions.Cloud.Services[cloud.ResourceManager].Audience &&
 						opts.Cloud.Services[cloud.ResourceManager].Endpoint == clientOptions.Cloud.Services[cloud.ResourceManager].Endpoint

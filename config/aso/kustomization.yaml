@@ -28,7 +28,7 @@ patches:
         path: /spec/template/spec/containers/0/image
         value: quay.io/mveber/azureserviceoperator:v2.13.0-hcpclusters
       - op: replace
-        path: /spec/template/spec/containers/0/replicas
+        path: /spec/replicas
         value: 1
       - op: test
         path: /spec/template/spec/containers/0/args/6

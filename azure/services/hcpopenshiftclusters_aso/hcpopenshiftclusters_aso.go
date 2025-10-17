@@ -423,6 +423,7 @@ func (s *Service) setHcpClusterReadyCondition(readyCondition *conditions.Conditi
 			cplane.HcpClusterReadyCondition,
 			readyCondition.Reason,
 			severity,
+			"%s",
 			readyCondition.Message,
 		)
 
@@ -432,6 +433,7 @@ func (s *Service) setHcpClusterReadyCondition(readyCondition *conditions.Conditi
 			aroControlPlane,
 			cplane.HcpClusterReadyCondition,
 			readyCondition.Reason,
+			"%s",
 			readyCondition.Message,
 		)
 	}
