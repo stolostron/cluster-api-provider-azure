@@ -1098,7 +1098,6 @@ func (s *AROControlPlaneScope) HcpOpenShiftClusterProperties() *asoredhatopenshi
 	if s.ControlPlane.Spec.Platform.ManagedIdentities.CreateAROHCPManagedIdentities ||
 		s.ControlPlane.Spec.Platform.ManagedIdentities.ControlPlaneOperators != nil ||
 		s.ControlPlane.Spec.Platform.ManagedIdentities.DataPlaneOperators != nil {
-
 		platformProfile.OperatorsAuthentication = &asoredhatopenshiftv1.OperatorsAuthenticationProfile{
 			UserAssignedIdentities: &asoredhatopenshiftv1.UserAssignedIdentitiesProfile{},
 		}

@@ -15,6 +15,8 @@ limitations under the License.
 */
 
 // Package hcpopenshiftclusters_aso provides ASO-based HCP OpenShift cluster management.
+//
+//nolint:revive // Package name with underscore is intentional to distinguish ASO implementation
 package hcpopenshiftclusters_aso
 
 import (
@@ -294,7 +296,7 @@ func (s *Service) Pause(ctx context.Context) error {
 
 // buildHcpOpenShiftCluster builds the HcpOpenShiftCluster ASO resource from the scope.
 func (s *Service) buildHcpOpenShiftCluster(ctx context.Context) (*asoredhatopenshiftv1.HcpOpenShiftCluster, error) {
-	ctx, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters_aso.Service.buildHcpOpenShiftCluster")
+	_, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters_aso.Service.buildHcpOpenShiftCluster")
 	defer done()
 
 	// Get the basic cluster information
@@ -409,9 +411,10 @@ func (s *Service) setHcpClusterReadyCondition(readyCondition *conditions.Conditi
 	case metav1.ConditionFalse:
 		// ASO reports not ready - check severity
 		severity := clusterv1.ConditionSeverityInfo
-		if readyCondition.Severity == conditions.ConditionSeverityError {
+		switch readyCondition.Severity {
+		case conditions.ConditionSeverityError:
 			severity = clusterv1.ConditionSeverityError
-		} else if readyCondition.Severity == conditions.ConditionSeverityWarning {
+		case conditions.ConditionSeverityWarning:
 			severity = clusterv1.ConditionSeverityWarning
 		}
 

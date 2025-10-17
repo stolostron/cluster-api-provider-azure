@@ -102,7 +102,7 @@ var (
 		},
 	}
 
-	fakeASOPrivateEndpointsStatus = asonetworkv1.PrivateEndpoint_STATUS{
+	fakeASOPrivateEndpointsStatus = asonetworkv1.PrivateEndpoint_STATUS_PrivateEndpoint_SubResourceEmbedded{
 		ApplicationSecurityGroups: []asonetworkv1.ApplicationSecurityGroup_STATUS_PrivateEndpoint_SubResourceEmbedded{
 			{
 				Id: ptr.To(fakePrivateEndpoint.ApplicationSecurityGroups[0]),

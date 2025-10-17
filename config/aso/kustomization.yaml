@@ -3,7 +3,7 @@ kind: Component
 namespace: capz-system
 resources:
   # The ASO version here is managed by `make generate-aso-crds`
-  - https://raw.githubusercontent.com/marek-veber/azure-service-operator/refs/heads/RedHatOpenShift-hcpclusters-2024-06-10-preview/download/v2.15.0-rev.60/azureserviceoperator_v2.15.0-rev.60.yaml
+  - https://raw.githubusercontent.com/marek-veber/azure-service-operator/refs/heads/v2.13.0-hcpclusters/download/v2.13.0-hcpclusters/azureserviceoperator_v2.13.0-hcpclusters.yaml
   - crds.yaml
   - settings.yaml
 patches:
@@ -26,7 +26,10 @@ patches:
   - patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: quay.io/mveber/azureserviceoperator:v2.15.0-rev.61
+        value: quay.io/mveber/azureserviceoperator:v2.13.0-hcpclusters
+      - op: replace
+        path: /spec/template/spec/containers/0/replicas
+        value: 1
       - op: test
         path: /spec/template/spec/containers/0/args/6
         value: --crd-pattern=
