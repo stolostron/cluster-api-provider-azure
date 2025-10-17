@@ -342,6 +342,9 @@ const (
 
 	// AROControlPlaneUpgradingCondition condition reports whether AROControlPlane is upgrading or not.
 	AROControlPlaneUpgradingCondition clusterv1.ConditionType = "AROControlPlaneUpgrading"
+
+	// HcpClusterReadyCondition mirrors the Ready condition from the HcpOpenShiftCluster ASO resource.
+	HcpClusterReadyCondition clusterv1.ConditionType = "HcpClusterReady"
 )
 
 // +kubebuilder:object:root=true

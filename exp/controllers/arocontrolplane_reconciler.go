@@ -32,8 +32,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/groups"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclustercredentials"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclusters"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclusters_aso"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/keyvaults"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/networksecuritygroups"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
@@ -68,11 +67,7 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 	if err != nil {
 		return nil, err
 	}
-	hpcOpenshiftSvc, err := hcpopenshiftclusters.New(scope, skuCache)
-	if err != nil {
-		return nil, err
-	}
-	hpcOpenshiftSecretsSvc, err := hcpopenshiftclustercredentials.New(scope, skuCache)
+	hpcOpenshiftASOSvc, err := hcpopenshiftclusters_aso.New(scope)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +83,8 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 			keyVaultSvc,
 			userassignedidentities.New(scope),
 			roleassignmentsaso.New(scope),
-			hpcOpenshiftSvc,
-			hpcOpenshiftSecretsSvc,
+			hpcOpenshiftASOSvc, // ASO-based cluster provisioning
+			// hpcOpenshiftSecretsSvc removed - kubeconfig now comes from ASO secret
 		},
 		skuCache: skuCache,
 	}
@@ -167,10 +162,13 @@ func (s *aroControlPlaneService) reconcileKubeconfig(ctx context.Context) error 
 
 	log.V(4).Info("reconciling kubeconfig secret")
 
-	// Get the admin kubeconfig data from ARO scope
-	kubeconfigData := s.scope.GetAdminKubeconfigData()
+	// Get the admin kubeconfig data from ASO-created secret
+	kubeconfigData, err := s.getKubeconfigFromASOSecret(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to get kubeconfig from ASO secret")
+	}
 	if len(kubeconfigData) == 0 {
-		return errors.New("no kubeconfig data available from ARO scope")
+		return errors.New("no kubeconfig data available from ASO secret")
 	}
 
 	// Parse the kubeconfig to work with it
@@ -212,10 +210,14 @@ func (s *aroControlPlaneService) reconcileKubeconfig(ctx context.Context) error 
 				cluster := kubeconfigFile.Clusters[context.Cluster]
 				if cluster != nil {
 					caData = cluster.CertificateAuthorityData
-					if caData == nil {
-						log.V(4).Info("no CA data found, setting insecure skip TLS verify")
+					if caData == nil && cluster.Server != "" {
+						// ASO-created kubeconfig doesn't include CA certificate
+						// Use insecure-skip-tls-verify as workaround
+						log.V(4).Info("no CA data in kubeconfig from ASO, setting insecure skip TLS verify", "server", cluster.Server)
 						cluster.InsecureSkipTLSVerify = true
-					} else {
+					}
+
+					if caData != nil {
 						// Create/update CA secret
 						caSecret := s.scope.MakeClusterCA()
 						if _, err := controllerutil.CreateOrUpdate(ctx, s.kubeclient, caSecret, func() error {
@@ -239,37 +241,50 @@ func (s *aroControlPlaneService) reconcileKubeconfig(ctx context.Context) error 
 		return errors.Wrap(err, "failed to serialize kubeconfig")
 	}
 
-	// Create/update the main kubeconfig secret
+	// Update the ASO-created kubeconfig secret directly
+	// We need to preserve the secret's existing metadata (owner references from ASO)
+	// and only update the data and add our tracking annotations
+	secretName := secret.Name(s.scope.Cluster.Name, secret.Kubeconfig)
 	kubeConfigSecret := s.scope.MakeEmptyKubeConfigSecret()
-	if _, err := controllerutil.CreateOrUpdate(ctx, s.kubeclient, &kubeConfigSecret, func() error {
-		kubeConfigSecret.Data = map[string][]byte{
-			secret.KubeconfigDataName: kubeconfigAdmin,
-		}
 
-		// Ensure proper labels
-		if kubeConfigSecret.Labels == nil {
-			kubeConfigSecret.Labels = make(map[string]string)
-		}
-		kubeConfigSecret.Labels[clusterv1.ClusterNameLabel] = s.scope.ClusterName()
+	// Get the existing secret to preserve its metadata
+	if err := s.kubeclient.Get(ctx, client.ObjectKey{
+		Namespace: s.scope.Namespace(),
+		Name:      secretName,
+	}, &kubeConfigSecret); err != nil {
+		return errors.Wrap(err, "failed to get existing kubeconfig secret")
+	}
 
-		// Add annotations for tracking
-		if kubeConfigSecret.Annotations == nil {
-			kubeConfigSecret.Annotations = make(map[string]string)
-		}
-		kubeConfigSecret.Annotations["aro.azure.com/kubeconfig-last-updated"] = time.Now().Format(time.RFC3339)
+	// Update the secret data with our modified kubeconfig
+	if kubeConfigSecret.Data == nil {
+		kubeConfigSecret.Data = make(map[string][]byte)
+	}
+	kubeConfigSecret.Data[secret.KubeconfigDataName] = kubeconfigAdmin
 
-		// Remove refresh-needed annotation if it exists
-		delete(kubeConfigSecret.Annotations, "aro.azure.com/kubeconfig-refresh-needed")
+	// Ensure proper labels
+	if kubeConfigSecret.Labels == nil {
+		kubeConfigSecret.Labels = make(map[string]string)
+	}
+	kubeConfigSecret.Labels[clusterv1.ClusterNameLabel] = s.scope.ClusterName()
 
-		// Add token expiration info if available
-		if tokenExpiresIn != nil && *tokenExpiresIn > 0 {
-			expirationTime := time.Now().Add(*tokenExpiresIn)
-			kubeConfigSecret.Annotations["aro.azure.com/token-expires-at"] = expirationTime.Format(time.RFC3339)
-		}
+	// Add annotations for tracking
+	if kubeConfigSecret.Annotations == nil {
+		kubeConfigSecret.Annotations = make(map[string]string)
+	}
+	kubeConfigSecret.Annotations["aro.azure.com/kubeconfig-last-updated"] = time.Now().Format(time.RFC3339)
 
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "failed to reconcile kubeconfig secret")
+	// Remove refresh-needed annotation if it exists
+	delete(kubeConfigSecret.Annotations, "aro.azure.com/kubeconfig-refresh-needed")
+
+	// Add token expiration info if available
+	if tokenExpiresIn != nil && *tokenExpiresIn > 0 {
+		expirationTime := time.Now().Add(*tokenExpiresIn)
+		kubeConfigSecret.Annotations["aro.azure.com/token-expires-at"] = expirationTime.Format(time.RFC3339)
+	}
+
+	// Update the secret (preserving existing owner references from ASO)
+	if err := s.kubeclient.Update(ctx, &kubeConfigSecret); err != nil {
+		return errors.Wrap(err, "failed to update kubeconfig secret")
 	}
 
 	// Store cluster-info if we have CA data
@@ -293,4 +308,37 @@ func (s *aroControlPlaneService) getService(name string) (azure.ServiceReconcile
 		}
 	}
 	return nil, errors.Errorf("service %s not found", name)
+}
+
+// getKubeconfigFromASOSecret reads the kubeconfig from the ASO-created secret.
+func (s *aroControlPlaneService) getKubeconfigFromASOSecret(ctx context.Context) ([]byte, error) {
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.aroControlPlaneService.getKubeconfigFromASOSecret")
+	defer done()
+
+	// The ASO secret name follows CAPI convention: {cluster-name}-kubeconfig
+	secretName := secret.Name(s.scope.Cluster.Name, secret.Kubeconfig)
+	asoSecret := s.scope.MakeEmptyKubeConfigSecret()
+
+	log.V(4).Info("reading kubeconfig from ASO secret", "secretName", secretName, "namespace", s.scope.Namespace())
+
+	err := s.kubeclient.Get(ctx, client.ObjectKey{
+		Namespace: s.scope.Namespace(),
+		Name:      secretName,
+	}, &asoSecret)
+
+	if err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			log.V(4).Info("ASO kubeconfig secret not yet created, will retry")
+			return nil, errors.New("ASO kubeconfig secret not yet available")
+		}
+		return nil, errors.Wrap(err, "failed to get ASO kubeconfig secret")
+	}
+
+	// Extract kubeconfig data from secret
+	kubeconfigData, ok := asoSecret.Data[secret.KubeconfigDataName]
+	if !ok || len(kubeconfigData) == 0 {
+		return nil, errors.Errorf("key %s not found in ASO kubeconfig secret", secret.KubeconfigDataName)
+	}
+
+	return kubeconfigData, nil
 }

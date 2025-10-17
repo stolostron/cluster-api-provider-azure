@@ -22,6 +22,7 @@ import (
 	errorsCore "errors"
 	"fmt"
 
+	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -32,9 +33,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
@@ -43,6 +44,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/controllers"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-azure/pkg/coalescing"
 	"sigs.k8s.io/cluster-api-provider-azure/util/reconciler"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
@@ -73,7 +75,7 @@ type AROControlPlaneReconciler struct {
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
+func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controllers.Options) error {
 	_, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROControlPlaneReconciler.SetupWithManager",
 		tele.KVP("controller", cplane.AROControlPlaneKind),
@@ -81,10 +83,24 @@ func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ct
 	defer done()
 
 	r.getNewAROControlPlaneReconciler = newAROControlPlaneService
+
+	var reconciler reconcile.Reconciler = r
+	if options.Cache != nil {
+		reconciler = coalescing.NewReconciler(r, options.Cache, log)
+	}
+
 	_, err := ctrl.NewControllerManagedBy(mgr).
-		WithOptions(options).
-		For(&cplane.AROControlPlane{}).
-		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
+		WithOptions(options.Options).
+		For(&cplane.AROControlPlane{}, builder.WithPredicates(
+			predicate.And(
+				predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue),
+				predicate.Or(
+					predicate.GenerationChangedPredicate{},
+					predicate.AnnotationChangedPredicate{},
+					predicate.LabelChangedPredicate{},
+				),
+			),
+		)).
 		Watches(&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(clusterToAROControlPlane),
 			builder.WithPredicates(
@@ -98,8 +114,15 @@ func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ct
 			&infrav2exp.AROMachinePool{},
 			handler.EnqueueRequestsFromMapFunc(r.aroMachinePoolToAROControlPlane),
 		).
+		// Watch for changes to ASO HcpOpenShiftCluster resources
+		// Only reconcile on spec changes (generation changed), not status updates
+		Watches(
+			&asoredhatopenshiftv1.HcpOpenShiftCluster{},
+			handler.EnqueueRequestsFromMapFunc(r.hcpClusterToAROControlPlane),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
 		Owns(&corev1.Secret{}).
-		Build(r)
+		Build(reconciler)
 	if err != nil {
 		return fmt.Errorf("failed setting up the AROControlPlane controller manager: %w", err)
 	}
@@ -130,9 +153,30 @@ func (r *AROControlPlaneReconciler) aroMachinePoolToAROControlPlane(ctx context.
 	return clusterToAROControlPlane(ctx, cluster)
 }
 
+// hcpClusterToAROControlPlane maps ASO HcpOpenShiftCluster changes to the owning AROControlPlane.
+func (r *AROControlPlaneReconciler) hcpClusterToAROControlPlane(_ context.Context, o client.Object) []ctrl.Request {
+	hcpCluster := o.(*asoredhatopenshiftv1.HcpOpenShiftCluster)
+
+	// Find the owning AROControlPlane from owner references
+	for _, ref := range hcpCluster.OwnerReferences {
+		if ref.APIVersion == cplane.GroupVersion.Identifier() && ref.Kind == cplane.AROControlPlaneKind {
+			return []ctrl.Request{{
+				NamespacedName: client.ObjectKey{
+					Namespace: hcpCluster.Namespace,
+					Name:      ref.Name,
+				},
+			}}
+		}
+	}
+
+	return nil
+}
+
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/finalizers,verbs=update
+//+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclusters/status,verbs=get;list;watch
 
 // Reconcile will reconcile AROControlPlane resources.
 func (r *AROControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {

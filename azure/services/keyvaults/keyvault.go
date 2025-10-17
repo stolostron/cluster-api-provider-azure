@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/pkg/errors"
@@ -70,7 +71,10 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "keyvault.Service.Reconcile")
 	defer done()
 
-	ctx, cancel := context.WithTimeout(ctx, s.Scope.DefaultedAzureCallTimeout())
+	// KeyVault operations need a longer timeout than the default 2s Azure call timeout
+	// Use 180 seconds (3 minutes) to allow for KeyVault SDK operations to complete
+	// This accounts for slow KeyVault API responses and network latency
+	ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
 	// Get all KeyVault specs

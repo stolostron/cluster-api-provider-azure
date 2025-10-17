@@ -29,7 +29,9 @@ import (
 	"github.com/Azure/azure-service-operator/v2/api/keyvault/v1api20230701"
 	asomanagedidentityv1api20230131 "github.com/Azure/azure-service-operator/v2/api/managedidentity/v1api20230131"
 	asonetworkv1api20201101 "github.com/Azure/azure-service-operator/v2/api/network/v1api20201101"
+	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	asoresourcesv1 "github.com/Azure/azure-service-operator/v2/api/resources/v1api20200601"
+	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -347,21 +349,28 @@ func (s *AROControlPlaneScope) ShouldReconcileKubeconfig(ctx context.Context) bo
 		return true
 	}
 
-	// Check for ARO-specific annotations that indicate refresh needed
-	if kubeconfigSecret.Annotations != nil {
-		if refreshNeeded, exists := kubeconfigSecret.Annotations["aro.azure.com/kubeconfig-refresh-needed"]; exists && refreshNeeded == kubeconfigRefreshNeededValue {
-			return true
-		}
+	// If secret exists but doesn't have our tracking annotation, it was created by ASO
+	// and needs to be reconciled to add insecure-skip-tls-verify
+	if kubeconfigSecret.Annotations == nil {
+		return true
+	}
+	if _, exists := kubeconfigSecret.Annotations["aro.azure.com/kubeconfig-last-updated"]; !exists {
+		return true
+	}
 
-		// Check if secret is older than configured threshold
-		if lastUpdated, exists := kubeconfigSecret.Annotations["aro.azure.com/kubeconfig-last-updated"]; exists {
-			lastUpdatedTime, err := time.Parse(time.RFC3339, lastUpdated)
-			if err == nil {
-				kubeconfigAge := time.Since(lastUpdatedTime)
-				maxAge := s.GetKubeconfigMaxAge() // Configure based on ARO token lifetime
-				if kubeconfigAge > maxAge {
-					return true
-				}
+	// Check for ARO-specific annotations that indicate refresh needed
+	if refreshNeeded, exists := kubeconfigSecret.Annotations["aro.azure.com/kubeconfig-refresh-needed"]; exists && refreshNeeded == kubeconfigRefreshNeededValue {
+		return true
+	}
+
+	// Check if secret is older than configured threshold
+	if lastUpdated, exists := kubeconfigSecret.Annotations["aro.azure.com/kubeconfig-last-updated"]; exists {
+		lastUpdatedTime, err := time.Parse(time.RFC3339, lastUpdated)
+		if err == nil {
+			kubeconfigAge := time.Since(lastUpdatedTime)
+			maxAge := s.GetKubeconfigMaxAge() // Configure based on ARO token lifetime
+			if kubeconfigAge > maxAge {
+				return true
 			}
 		}
 	}
@@ -1044,4 +1053,257 @@ func (s *AROControlPlaneScope) SetVaultInfo(vaultName, keyName, keyVersion *stri
 	s.VaultName = vaultName
 	s.VaultKeyName = keyName
 	s.VaultKeyVersion = keyVersion
+}
+
+// SubscriptionID returns the subscription ID.
+func (s *AROControlPlaneScope) SubscriptionID() string {
+	return s.ControlPlane.Spec.SubscriptionID
+}
+
+// GetResourceGroupOwnerReference returns the resource group owner reference for ASO resources.
+func (s *AROControlPlaneScope) GetResourceGroupOwnerReference() *genruntime.KnownResourceReference {
+	return &genruntime.KnownResourceReference{
+		Name: azure.GetNormalizedKubernetesName(s.ResourceGroup()),
+	}
+}
+
+// HcpOpenShiftClusterProperties returns the properties for the ASO HcpOpenShiftCluster resource.
+func (s *AROControlPlaneScope) HcpOpenShiftClusterProperties() *asoredhatopenshiftv1.HcpOpenShiftClusterProperties {
+	props := &asoredhatopenshiftv1.HcpOpenShiftClusterProperties{}
+
+	// Set version
+	if s.ControlPlane.Spec.Version != "" {
+		props.Version = &asoredhatopenshiftv1.VersionProfile{
+			Id:           ptr.To(s.ControlPlane.Spec.Version),
+			ChannelGroup: ptr.To(string(s.ControlPlane.Spec.ChannelGroup)),
+		}
+	}
+
+	// Set API visibility
+	if s.ControlPlane.Spec.Visibility != "" {
+		visibility := asoredhatopenshiftv1.ApiProfile_Visibility(s.ControlPlane.Spec.Visibility)
+		props.Api = &asoredhatopenshiftv1.ApiProfile{
+			Visibility: &visibility,
+		}
+	}
+
+	// Set network configuration
+	if s.ControlPlane.Spec.Network != nil {
+		networkProfile := &asoredhatopenshiftv1.NetworkProfile{}
+
+		if s.ControlPlane.Spec.Network.NetworkType != "" {
+			networkProfile.NetworkType = ptr.To(asoredhatopenshiftv1.NetworkProfile_NetworkType(s.ControlPlane.Spec.Network.NetworkType))
+		}
+		if s.ControlPlane.Spec.Network.PodCIDR != "" {
+			networkProfile.PodCidr = ptr.To(s.ControlPlane.Spec.Network.PodCIDR)
+		}
+		if s.ControlPlane.Spec.Network.ServiceCIDR != "" {
+			networkProfile.ServiceCidr = ptr.To(s.ControlPlane.Spec.Network.ServiceCIDR)
+		}
+		if s.ControlPlane.Spec.Network.MachineCIDR != "" {
+			networkProfile.MachineCidr = ptr.To(s.ControlPlane.Spec.Network.MachineCIDR)
+		}
+		if s.ControlPlane.Spec.Network.HostPrefix != 0 {
+			networkProfile.HostPrefix = ptr.To(s.ControlPlane.Spec.Network.HostPrefix)
+		}
+
+		props.Network = networkProfile
+	}
+
+	// Set platform configuration
+	platformProfile := &asoredhatopenshiftv1.PlatformProfile{}
+
+	// Subnet reference
+	if s.ControlPlane.Spec.Platform.Subnet != "" {
+		platformProfile.SubnetReference = &genruntime.ResourceReference{
+			ARMID: s.ControlPlane.Spec.Platform.Subnet,
+		}
+	}
+
+	// NSG reference
+	if s.ControlPlane.Spec.Platform.NetworkSecurityGroupID != "" {
+		platformProfile.NetworkSecurityGroupReference = &genruntime.ResourceReference{
+			ARMID: s.ControlPlane.Spec.Platform.NetworkSecurityGroupID,
+		}
+	}
+
+	// Outbound type
+	if s.ControlPlane.Spec.Platform.OutboundType != "" {
+		platformProfile.OutboundType = ptr.To(asoredhatopenshiftv1.PlatformProfile_OutboundType(s.ControlPlane.Spec.Platform.OutboundType))
+	}
+
+		// Managed resource group (for node resources)
+	platformProfile.ManagedResourceGroup = ptr.To(s.NodeResourceGroup())
+
+	// Managed identities configuration
+	if s.ControlPlane.Spec.Platform.ManagedIdentities.CreateAROHCPManagedIdentities ||
+		s.ControlPlane.Spec.Platform.ManagedIdentities.ControlPlaneOperators != nil ||
+		s.ControlPlane.Spec.Platform.ManagedIdentities.DataPlaneOperators != nil {
+
+		platformProfile.OperatorsAuthentication = &asoredhatopenshiftv1.OperatorsAuthenticationProfile{
+			UserAssignedIdentities: &asoredhatopenshiftv1.UserAssignedIdentitiesProfile{},
+		}
+
+		// Control plane operators
+		if ops := s.ControlPlane.Spec.Platform.ManagedIdentities.ControlPlaneOperators; ops != nil {
+			cpOps := make(map[string]genruntime.ResourceReference)
+
+			if ops.ControlPlaneManagedIdentities != "" {
+				cpOps["control-plane"] = genruntime.ResourceReference{
+					ARMID: ops.ControlPlaneManagedIdentities,
+				}
+			}
+			if ops.ClusterAPIAzureManagedIdentities != "" {
+				cpOps["cluster-api-azure"] = genruntime.ResourceReference{
+					ARMID: ops.ClusterAPIAzureManagedIdentities,
+				}
+			}
+			if ops.CloudControllerManagerManagedIdentities != "" {
+				cpOps["cloud-controller-manager"] = genruntime.ResourceReference{
+					ARMID: ops.CloudControllerManagerManagedIdentities,
+				}
+			}
+			if ops.IngressManagedIdentities != "" {
+				cpOps["ingress"] = genruntime.ResourceReference{
+					ARMID: ops.IngressManagedIdentities,
+				}
+			}
+			if ops.DiskCsiDriverManagedIdentities != "" {
+				cpOps["disk-csi-driver"] = genruntime.ResourceReference{
+					ARMID: ops.DiskCsiDriverManagedIdentities,
+				}
+			}
+			if ops.FileCsiDriverManagedIdentities != "" {
+				cpOps["file-csi-driver"] = genruntime.ResourceReference{
+					ARMID: ops.FileCsiDriverManagedIdentities,
+				}
+			}
+			if ops.ImageRegistryManagedIdentities != "" {
+				cpOps["image-registry"] = genruntime.ResourceReference{
+					ARMID: ops.ImageRegistryManagedIdentities,
+				}
+			}
+			if ops.CloudNetworkConfigManagedIdentities != "" {
+				cpOps["cloud-network-config"] = genruntime.ResourceReference{
+					ARMID: ops.CloudNetworkConfigManagedIdentities,
+				}
+			}
+			if ops.KmsManagedIdentities != "" {
+				cpOps["kms"] = genruntime.ResourceReference{
+					ARMID: ops.KmsManagedIdentities,
+				}
+			}
+
+			platformProfile.OperatorsAuthentication.UserAssignedIdentities.ControlPlaneOperatorsReferences = cpOps
+		}
+
+		// Data plane operators
+		if ops := s.ControlPlane.Spec.Platform.ManagedIdentities.DataPlaneOperators; ops != nil {
+			dpOps := make(map[string]genruntime.ResourceReference)
+
+			if ops.DiskCsiDriverManagedIdentities != "" {
+				dpOps["disk-csi-driver"] = genruntime.ResourceReference{
+					ARMID: ops.DiskCsiDriverManagedIdentities,
+				}
+			}
+			if ops.FileCsiDriverManagedIdentities != "" {
+				dpOps["file-csi-driver"] = genruntime.ResourceReference{
+					ARMID: ops.FileCsiDriverManagedIdentities,
+				}
+			}
+			if ops.ImageRegistryManagedIdentities != "" {
+				dpOps["image-registry"] = genruntime.ResourceReference{
+					ARMID: ops.ImageRegistryManagedIdentities,
+				}
+			}
+
+			platformProfile.OperatorsAuthentication.UserAssignedIdentities.DataPlaneOperatorsReferences = dpOps
+		}
+
+		// Service managed identity
+		if s.ControlPlane.Spec.Platform.ManagedIdentities.ServiceManagedIdentity != "" {
+			platformProfile.OperatorsAuthentication.UserAssignedIdentities.ServiceManagedIdentityReference = &genruntime.ResourceReference{
+				ARMID: s.ControlPlane.Spec.Platform.ManagedIdentities.ServiceManagedIdentity,
+			}
+		}
+	}
+
+	props.Platform = platformProfile
+
+	// Set etcd encryption if KeyVault is configured
+	if s.ControlPlane.Spec.Platform.KeyVault != "" {
+		props.Etcd = &asoredhatopenshiftv1.EtcdProfile{
+			DataEncryption: &asoredhatopenshiftv1.EtcdDataEncryptionProfile{
+				KeyManagementMode: ptr.To(asoredhatopenshiftv1.EtcdDataEncryptionProfile_KeyManagementMode("CustomerManaged")),
+				CustomerManaged: &asoredhatopenshiftv1.CustomerManagedEncryptionProfile{
+					EncryptionType: ptr.To(asoredhatopenshiftv1.CustomerManagedEncryptionProfile_EncryptionType("KMS")),
+				},
+			},
+		}
+
+		// Add KMS configuration if vault details are available
+		if s.VaultName != nil && s.VaultKeyName != nil && s.VaultKeyVersion != nil {
+			kmsProfile := &asoredhatopenshiftv1.KmsEncryptionProfile{
+				ActiveKey: &asoredhatopenshiftv1.KmsKey{
+					Name:      s.VaultKeyName,
+					VaultName: s.VaultName,
+					Version:   s.VaultKeyVersion,
+				},
+			}
+			props.Etcd.DataEncryption.CustomerManaged.Kms = kmsProfile
+		}
+	}
+
+	return props
+}
+
+// UserAssignedIdentities returns the user-assigned identities for the cluster.
+func (s *AROControlPlaneScope) UserAssignedIdentities() []asoredhatopenshiftv1.UserAssignedIdentityDetails {
+	if s.ControlPlane.Spec.Platform.ManagedIdentities.ControlPlaneOperators == nil {
+		return nil
+	}
+
+	identities := make([]asoredhatopenshiftv1.UserAssignedIdentityDetails, 0)
+
+	ops := s.ControlPlane.Spec.Platform.ManagedIdentities.ControlPlaneOperators
+	identityARMIDs := []string{
+		ops.ControlPlaneManagedIdentities,
+		ops.ClusterAPIAzureManagedIdentities,
+		ops.CloudControllerManagerManagedIdentities,
+		ops.IngressManagedIdentities,
+		ops.DiskCsiDriverManagedIdentities,
+		ops.FileCsiDriverManagedIdentities,
+		ops.ImageRegistryManagedIdentities,
+		ops.CloudNetworkConfigManagedIdentities,
+		ops.KmsManagedIdentities,
+	}
+
+	if s.ControlPlane.Spec.Platform.ManagedIdentities.ServiceManagedIdentity != "" {
+		identityARMIDs = append(identityARMIDs, s.ControlPlane.Spec.Platform.ManagedIdentities.ServiceManagedIdentity)
+	}
+
+	for _, armID := range identityARMIDs {
+		if armID != "" {
+			identities = append(identities, asoredhatopenshiftv1.UserAssignedIdentityDetails{
+				Reference: genruntime.ResourceReference{
+					ARMID: armID,
+				},
+			})
+		}
+	}
+
+	return identities
+}
+
+// ManagedServiceIdentity returns the managed service identity configuration for the cluster.
+func (s *AROControlPlaneScope) ManagedServiceIdentity() *asoredhatopenshiftv1.ManagedServiceIdentity {
+	identities := s.UserAssignedIdentities()
+	if len(identities) == 0 {
+		return nil
+	}
+
+	return &asoredhatopenshiftv1.ManagedServiceIdentity{
+		Type:                   ptr.To(asoredhatopenshiftv1.ManagedServiceIdentityType_UserAssigned),
+		UserAssignedIdentities: identities,
+	}
 }

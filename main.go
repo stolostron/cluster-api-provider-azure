@@ -37,6 +37,7 @@ import (
 	asomanagedidentityv1api20230131 "github.com/Azure/azure-service-operator/v2/api/managedidentity/v1api20230131"
 	asonetworkv1api20201101 "github.com/Azure/azure-service-operator/v2/api/network/v1api20201101"
 	asonetworkv1api20220701 "github.com/Azure/azure-service-operator/v2/api/network/v1api20220701"
+	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	asoresourcesv1 "github.com/Azure/azure-service-operator/v2/api/resources/v1api20200601"
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
@@ -104,6 +105,7 @@ func init() {
 	_ = asocontainerservicev1api20240901.AddToScheme(scheme)
 	_ = asokeyvaultv1.AddToScheme(scheme)
 	_ = asokubernetesconfigurationv1.AddToScheme(scheme)
+	_ = asoredhatopenshiftv1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -652,12 +654,17 @@ func registerControllers(ctx context.Context, mgr manager.Manager) {
 			os.Exit(1)
 		}
 
+		aroControlPlaneCache, err := coalescing.NewRequestCache(debouncingTimer)
+		if err != nil {
+			setupLog.Error(err, "failed to build aroControlPlaneCache ReconcileCache")
+		}
+
 		if err := (&infrav1controllersexp.AROControlPlaneReconciler{
 			Client:           mgr.GetClient(),
 			WatchFilterValue: watchFilterValue,
 			CredentialCache:  credCache,
 			Timeouts:         timeouts,
-		}).SetupWithManager(ctx, mgr, controller.Options{MaxConcurrentReconciles: azureClusterConcurrency}); err != nil {
+		}).SetupWithManager(ctx, mgr, controllers.Options{Options: controller.Options{MaxConcurrentReconciles: azureClusterConcurrency}, Cache: aroControlPlaneCache}); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AROControlPlane")
 			os.Exit(1)
 		}
