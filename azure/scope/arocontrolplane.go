@@ -47,8 +47,6 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/groups"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclustercredentials"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclusters"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/keyvaults"
 	networksecutitygroup "sigs.k8s.io/cluster-api-provider-azure/azure/services/networksecuritygroups"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/roleassignmentsaso"
@@ -271,42 +269,6 @@ func (s *AROControlPlaneScope) UpdatePatchStatus(condition clusterv1.ConditionTy
 	default:
 		conditions.MarkFalse(s.ControlPlane, condition, infrav1.FailedReason, clusterv1.ConditionSeverityError, "%s failed to update. err: %s", service, err.Error())
 	}
-}
-
-// HcpOpenShiftClusterSpecs returns the resource spec getter for HCP OpenShift clusters.
-func (s *AROControlPlaneScope) HcpOpenShiftClusterSpecs(_ context.Context) azure.ResourceSpecGetter {
-	ret := &hcpopenshiftclusters.HcpOpenShiftClustersSpec{
-		Name:                   s.Cluster.Name,
-		Location:               s.Location(),
-		ResourceGroup:          s.ResourceGroup(),
-		NodeResourceGroup:      s.NodeResourceGroup(),
-		ManagedIdentities:      &s.ControlPlane.Spec.Platform.ManagedIdentities,
-		AdditionalTags:         s.ControlPlane.Spec.AdditionalTags,
-		NetworkSecurityGroupID: s.ControlPlane.Spec.Platform.NetworkSecurityGroupID,
-		SubscriptionID:         s.ControlPlane.Spec.SubscriptionID,
-		SubnetID:               s.ControlPlane.Spec.Platform.Subnet,
-		VaultID:                s.ControlPlane.Spec.Platform.KeyVault,
-		VaultName:              s.VaultName,
-		VaultKeyName:           s.VaultKeyName,
-		VaultKeyVersion:        s.VaultKeyVersion,
-		VNetID:                 regexp.MustCompile("/subnets/.*").ReplaceAllLiteralString(s.ControlPlane.Spec.Platform.Subnet, ""),
-		OutboundType:           s.ControlPlane.Spec.Platform.OutboundType,
-		Network:                s.ControlPlane.Spec.Network,
-		Version:                s.ControlPlane.Spec.Version,
-		ChannelGroup:           s.ControlPlane.Spec.ChannelGroup,
-		Visibility:             s.ControlPlane.Spec.Visibility,
-	}
-	return ret
-}
-
-// HcpOpenShiftClusterCredentialsSpecs returns the resource spec getter for HCP OpenShift cluster credentials.
-func (s *AROControlPlaneScope) HcpOpenShiftClusterCredentialsSpecs(_ context.Context) azure.ResourceSpecGetter {
-	ret := &hcpopenshiftclustercredentials.HcpOpenShiftClusterCredentialsSpec{
-		Name:          s.Cluster.Name,
-		ResourceGroup: s.ResourceGroup(),
-		APIURI:        s.ControlPlane.Status.APIURL,
-	}
-	return ret
 }
 
 // AnnotateKubeconfigInvalid adds annotation aro.azure.com/kubeconfig-refresh-needed: true.
@@ -855,15 +817,12 @@ func convertTagsToStringPtr(tags infrav1.Tags) map[string]*string {
 func (s *AROControlPlaneScope) KubernetesRoleAssignmentSpecs() []azure.ASOResourceSpecGetter[*asoauthorizationv1api20220401.RoleAssignment] {
 	var specs []azure.ASOResourceSpecGetter[*asoauthorizationv1api20220401.RoleAssignment]
 
-	// Get the HCP cluster spec
-	ctx := context.Background()
-	specResource := s.HcpOpenShiftClusterSpecs(ctx)
-	spec, ok := specResource.(*hcpopenshiftclusters.HcpOpenShiftClustersSpec)
-	if !ok {
-		return specs
-	}
-
-	managedIdentities := spec.ManagedIdentities
+	// Get managed identities and platform configuration from control plane spec
+	managedIdentities := &s.ControlPlane.Spec.Platform.ManagedIdentities
+	subnetID := s.ControlPlane.Spec.Platform.Subnet
+	vnetID := regexp.MustCompile("/subnets/.*").ReplaceAllLiteralString(subnetID, "")
+	nsgID := s.ControlPlane.Spec.Platform.NetworkSecurityGroupID
+	vaultID := s.ControlPlane.Spec.Platform.KeyVault
 
 	// Helper function to create and add role assignment spec
 	createSpec := func(principalResourceID string, roleDef roleDEF, scope, suffix string) {
@@ -906,63 +865,63 @@ func (s *AROControlPlaneScope) KubernetesRoleAssignmentSpecs() []azure.ASOResour
 	}
 
 	// ClusterAPI Azure managed identity has HCP Cluster API Provider role on subnet
-	createSpec(managedIdentities.ControlPlaneOperators.ClusterAPIAzureManagedIdentities, roleHCPClusterAPIProvider, spec.SubnetID, "hcpclusterapiproviderroleid-subnet")
+	createSpec(managedIdentities.ControlPlaneOperators.ClusterAPIAzureManagedIdentities, roleHCPClusterAPIProvider, subnetID, "hcpclusterapiproviderroleid-subnet")
 	// Service managed identity has Reader role on ClusterAPI Azure managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.ClusterAPIAzureManagedIdentities, "readerroleid-clusterapiazuremi")
 	// Control Plane managed identity has HCP Control Plane Operator role on VNet
-	createSpec(managedIdentities.ControlPlaneOperators.ControlPlaneManagedIdentities, roleHCPControlPlaneOperator, spec.VNetID, "hcpcontrolplaneoperatorroleid-vnet")
+	createSpec(managedIdentities.ControlPlaneOperators.ControlPlaneManagedIdentities, roleHCPControlPlaneOperator, vnetID, "hcpcontrolplaneoperatorroleid-vnet")
 	// Control Plane managed identity has HCP Control Plane Operator role on Network Security Group
-	createSpec(managedIdentities.ControlPlaneOperators.ControlPlaneManagedIdentities, roleHCPControlPlaneOperator, spec.NetworkSecurityGroupID, "hcpcontrolplaneoperatorroleid-nsg")
+	createSpec(managedIdentities.ControlPlaneOperators.ControlPlaneManagedIdentities, roleHCPControlPlaneOperator, nsgID, "hcpcontrolplaneoperatorroleid-nsg")
 	// Service managed identity has Reader role on Control Plane managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.ControlPlaneManagedIdentities, "readerroleid-controlplanemi")
 	// Cloud Controller Manager managed identity has Cloud Controller Manager role on subnet
-	createSpec(managedIdentities.ControlPlaneOperators.CloudControllerManagerManagedIdentities, roleCloudControllerManager, spec.SubnetID, "cloudcontrollermanagerroleid-subnet")
+	createSpec(managedIdentities.ControlPlaneOperators.CloudControllerManagerManagedIdentities, roleCloudControllerManager, subnetID, "cloudcontrollermanagerroleid-subnet")
 	// Cloud Controller Manager managed identity has Cloud Controller Manager role on Network Security Group
-	createSpec(managedIdentities.ControlPlaneOperators.CloudControllerManagerManagedIdentities, roleCloudControllerManager, spec.NetworkSecurityGroupID, "cloudcontrollermanagerroleid-nsg")
+	createSpec(managedIdentities.ControlPlaneOperators.CloudControllerManagerManagedIdentities, roleCloudControllerManager, nsgID, "cloudcontrollermanagerroleid-nsg")
 	// Service managed identity has Reader role on Cloud Controller Manager managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.CloudControllerManagerManagedIdentities, "readerroleid-cloudcontrollermanagermi")
 	// Ingress managed identity has Ingress Operator role on subnet
-	createSpec(managedIdentities.ControlPlaneOperators.IngressManagedIdentities, roleIngressOperator, spec.SubnetID, "ingressoperatorroleid-subnet")
+	createSpec(managedIdentities.ControlPlaneOperators.IngressManagedIdentities, roleIngressOperator, subnetID, "ingressoperatorroleid-subnet")
 	// Service managed identity has Reader role on Ingress managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.IngressManagedIdentities, "readerroleid-ingressmi")
 	// Service managed identity has Reader role on Disk CSI Driver managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.DiskCsiDriverManagedIdentities, "readerroleid-diskcsidrivermi")
 	// File CSI Driver managed identity has File Storage Operator role on subnet
-	createSpec(managedIdentities.ControlPlaneOperators.FileCsiDriverManagedIdentities, roleFileStorageOperator, spec.SubnetID, "filestorageoperatorroleid-subnet")
+	createSpec(managedIdentities.ControlPlaneOperators.FileCsiDriverManagedIdentities, roleFileStorageOperator, subnetID, "filestorageoperatorroleid-subnet")
 	// File CSI Driver managed identity has File Storage Operator role on Network Security Group
-	createSpec(managedIdentities.ControlPlaneOperators.FileCsiDriverManagedIdentities, roleFileStorageOperator, spec.NetworkSecurityGroupID, "filestorageoperatorroleid-nsg")
+	createSpec(managedIdentities.ControlPlaneOperators.FileCsiDriverManagedIdentities, roleFileStorageOperator, nsgID, "filestorageoperatorroleid-nsg")
 	// Service managed identity has Reader role on File CSI Driver managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.FileCsiDriverManagedIdentities, "readerroleid-filecsidrivermi")
 	// Service managed identity has Reader role on Image Registry managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.ImageRegistryManagedIdentities, "readerroleid-imageregistrymi")
 	// Cloud Network Config managed identity has Network Operator role on subnet
-	createSpec(managedIdentities.ControlPlaneOperators.CloudNetworkConfigManagedIdentities, roleNetworkOperator, spec.SubnetID, "networkoperatorroleid-subnet")
+	createSpec(managedIdentities.ControlPlaneOperators.CloudNetworkConfigManagedIdentities, roleNetworkOperator, subnetID, "networkoperatorroleid-subnet")
 	// Cloud Network Config managed identity has Network Operator role on VNet
-	createSpec(managedIdentities.ControlPlaneOperators.CloudNetworkConfigManagedIdentities, roleNetworkOperator, spec.VNetID, "networkoperatorroleid-vnet")
+	createSpec(managedIdentities.ControlPlaneOperators.CloudNetworkConfigManagedIdentities, roleNetworkOperator, vnetID, "networkoperatorroleid-vnet")
 	// Service managed identity has Reader role on Cloud Network Config managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.CloudNetworkConfigManagedIdentities, "readerroleid-cloudnetworkconfigmi")
-	if spec.VaultID != "" {
+	if vaultID != "" {
 		// Service managed identity has Reader role on KMS managed identity
 		createSpec(managedIdentities.ServiceManagedIdentity, roleReader, managedIdentities.ControlPlaneOperators.KmsManagedIdentities, "readerroleid-kmsmi")
 		// KMS managed identity has Key Vault Crypto Service Encryption User role on KeyVault
-		createSpec(managedIdentities.ControlPlaneOperators.KmsManagedIdentities, roleKeyVaultCryptoUser, spec.VaultID, "keyvaultcryptouserroleid-keyvault")
+		createSpec(managedIdentities.ControlPlaneOperators.KmsManagedIdentities, roleKeyVaultCryptoUser, vaultID, "keyvaultcryptouserroleid-keyvault")
 	}
 	// Service managed identity has Federated Credentials role on Data Plane Disk CSI Driver managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleFederatedCredentials, managedIdentities.DataPlaneOperators.DiskCsiDriverManagedIdentities, "federatedcredentialsroleid-dpdiskcsidrivermi")
 	// Service managed identity has Federated Credentials role on Data Plane File CSI Driver managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleFederatedCredentials, managedIdentities.DataPlaneOperators.FileCsiDriverManagedIdentities, "federatedcredentialsroleid-dpfilecsidrivermi")
 	// Data Plane File CSI Driver managed identity has File Storage Operator role on subnet
-	createSpec(managedIdentities.DataPlaneOperators.FileCsiDriverManagedIdentities, roleFileStorageOperator, spec.SubnetID, "filestorageoperatorroleid-subnet")
+	createSpec(managedIdentities.DataPlaneOperators.FileCsiDriverManagedIdentities, roleFileStorageOperator, subnetID, "filestorageoperatorroleid-subnet")
 	// Data Plane File CSI Driver managed identity has File Storage Operator role on Network Security Group
-	createSpec(managedIdentities.DataPlaneOperators.FileCsiDriverManagedIdentities, roleFileStorageOperator, spec.NetworkSecurityGroupID, "filestorageoperatorroleid-nsg")
+	createSpec(managedIdentities.DataPlaneOperators.FileCsiDriverManagedIdentities, roleFileStorageOperator, nsgID, "filestorageoperatorroleid-nsg")
 	// Service managed identity has Federated Credentials role on Data Plane Image Registry managed identity
 	createSpec(managedIdentities.ServiceManagedIdentity, roleFederatedCredentials, managedIdentities.DataPlaneOperators.ImageRegistryManagedIdentities, "federatedcredentialsroleid-dpimageregistrymi")
 	// Service managed identity has HCP Service Managed Identity role on VNet
-	createSpec(managedIdentities.ServiceManagedIdentity, roleHCPServiceManagedIdentity, spec.VNetID, "hcpservicemanagedidentityroleid-vnet")
+	createSpec(managedIdentities.ServiceManagedIdentity, roleHCPServiceManagedIdentity, vnetID, "hcpservicemanagedidentityroleid-vnet")
 	// Service managed identity has HCP Service Managed Identity role on subnet
-	createSpec(managedIdentities.ServiceManagedIdentity, roleHCPServiceManagedIdentity, spec.SubnetID, "hcpservicemanagedidentityroleid-subnet")
+	createSpec(managedIdentities.ServiceManagedIdentity, roleHCPServiceManagedIdentity, subnetID, "hcpservicemanagedidentityroleid-subnet")
 	// Service managed identity has HCP Service Managed Identity role on Network Security Group
-	createSpec(managedIdentities.ServiceManagedIdentity, roleHCPServiceManagedIdentity, spec.NetworkSecurityGroupID, "hcpservicemanagedidentityroleid-nsg")
+	createSpec(managedIdentities.ServiceManagedIdentity, roleHCPServiceManagedIdentity, nsgID, "hcpservicemanagedidentityroleid-nsg")
 
 	return specs
 }
@@ -1132,7 +1091,7 @@ func (s *AROControlPlaneScope) HcpOpenShiftClusterProperties() *asoredhatopenshi
 		platformProfile.OutboundType = ptr.To(asoredhatopenshiftv1.PlatformProfile_OutboundType(s.ControlPlane.Spec.Platform.OutboundType))
 	}
 
-		// Managed resource group (for node resources)
+	// Managed resource group (for node resources)
 	platformProfile.ManagedResourceGroup = ptr.To(s.NodeResourceGroup())
 
 	// Managed identities configuration
