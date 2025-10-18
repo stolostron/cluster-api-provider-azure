@@ -29,7 +29,7 @@ import (
 
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftnodepools"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftnodepools_aso"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/virtualmachines"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
@@ -84,7 +84,7 @@ func newAROMachinePoolService(scope *scope.AROMachinePoolScope, apiCallTimeout t
 	if err != nil {
 		return nil, err
 	}
-	nodePoolService, err := hcpopenshiftnodepools.New(scope)
+	nodePoolService, err := hcpopenshiftnodepools_aso.New(scope)
 	if err != nil {
 		return nil, err
 	}

@@ -181,7 +181,7 @@ func (s *Service) Reconcile(ctx context.Context) error {
 			appliedCluster.Status.Properties.Api.Url != nil {
 			apiURL := appliedCluster.Status.Properties.Api.Url
 			log.V(4).Info("setting API URL from HcpOpenShiftCluster", "url", *apiURL)
-			s.Scope.SetAPIURL(apiURL, nil)
+			s.Scope.SetAPIURL(apiURL)
 		} else {
 			log.V(4).Info("HcpOpenShiftCluster API URL not yet available")
 			return azure.WithTransientError(errors.New("cluster API URL not yet available"), 15)

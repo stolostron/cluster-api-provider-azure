@@ -55,13 +55,22 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/vaults"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/virtualnetworks"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
-	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 	"sigs.k8s.io/cluster-api-provider-azure/util/futures"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
 const (
 	kubeconfigRefreshNeededValue = "true"
+)
+
+// Azure provisioning states for ARO HCP resources.
+const (
+	// ProvisioningStateSucceeded indicates the resource has been successfully provisioned.
+	ProvisioningStateSucceeded = "Succeeded"
+	// ProvisioningStateUpdating indicates the resource is being updated.
+	ProvisioningStateUpdating = "Updating"
+	// ProvisioningStateFailed indicates the resource provisioning has failed.
+	ProvisioningStateFailed = "Failed"
 )
 
 // Azure Role definition IDs for ARO HCP cluster role assignments.
@@ -161,8 +170,8 @@ type AROControlPlaneScope struct {
 	azure.AsyncReconciler
 }
 
-// SetAPIURL sets the API URL and visibility for the ARO control plane.
-func (s *AROControlPlaneScope) SetAPIURL(url *string, _ *arohcp.Visibility) {
+// SetAPIURL sets the API URL for the ARO control plane.
+func (s *AROControlPlaneScope) SetAPIURL(url *string) {
 	if url != nil {
 		s.ControlPlane.Status.APIURL = *url
 	}
@@ -196,27 +205,22 @@ func (s *AROControlPlaneScope) MakeEmptyKubeConfigSecret() corev1.Secret {
 	}
 }
 
-// SetStatusVersion sets the version profile in the control plane status.
-func (s *AROControlPlaneScope) SetStatusVersion(version *arohcp.VersionProfile) {
-	if version == nil {
-		return
-	}
-	if version.ID != nil {
-		s.ControlPlane.Status.Version = *version.ID
-	}
+// SetStatusVersion sets the version in the control plane status.
+func (s *AROControlPlaneScope) SetStatusVersion(versionID string) {
+	s.ControlPlane.Status.Version = versionID
 }
 
 // SetProvisioningState sets the provisioning state in the control plane status.
-func (s *AROControlPlaneScope) SetProvisioningState(state *arohcp.ProvisioningState) {
-	if state == nil {
+func (s *AROControlPlaneScope) SetProvisioningState(state string) {
+	if state == "" {
 		conditions.MarkUnknown(s.ControlPlane, cplane.AROControlPlaneReadyCondition, infrav1.CreatingReason, "nil ProvisioningState was returned")
 		return
 	}
-	if *state == arohcp.ProvisioningStateSucceeded {
+	if state == ProvisioningStateSucceeded {
 		conditions.MarkTrue(s.ControlPlane, cplane.AROControlPlaneReadyCondition)
 		return
 	}
-	conditions.MarkFalse(s.ControlPlane, cplane.AROControlPlaneReadyCondition, infrav1.CreatingReason, clusterv1.ConditionSeverityInfo, "ProvisioningState=%s", string(*state))
+	conditions.MarkFalse(s.ControlPlane, cplane.AROControlPlaneReadyCondition, infrav1.CreatingReason, clusterv1.ConditionSeverityInfo, "ProvisioningState=%s", state)
 }
 
 // SetLongRunningOperationState will set the future on the AROControlPlane status to allow the resource to continue

@@ -19,8 +19,12 @@ package scope
 import (
 	"context"
 
+	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
+	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	expv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -29,10 +33,8 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftnodepools"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	v1beta2 "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
-	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 	"sigs.k8s.io/cluster-api-provider-azure/util/futures"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
@@ -113,45 +115,6 @@ type AROMachinePoolScope struct {
 	azure.AsyncReconciler
 }
 
-// NodePoolSpecs returns the resource spec getter for node pools.
-func (s *AROMachinePoolScope) NodePoolSpecs(_ context.Context) azure.ResourceSpecGetter {
-	ret := &hcpopenshiftnodepools.HcpOpenShiftNodePoolSpec{
-		ClusterName:         s.ClusterName(),
-		Location:            s.Location(),
-		ResourceGroup:       s.ResourceGroup(),
-		AROMachinePoolSpec:  s.InfraMachinePool.Spec,
-		AROControlPlaneSpec: s.ControlPlane.Spec,
-		MachinePoolSpec:     s.MachinePool.Spec,
-	}
-	return ret
-}
-
-// SetStatusVersion sets the version profile in the machine pool status.
-func (s *AROMachinePoolScope) SetStatusVersion(versionProfile *arohcp.NodePoolVersionProfile) {
-	if versionProfile == nil {
-		return
-	}
-	s.InfraMachinePool.Status.Version = *versionProfile.ID
-}
-
-// SetProvisioningState sets the provisioning state in the machine pool status.
-func (s *AROMachinePoolScope) SetProvisioningState(state *arohcp.ProvisioningState) {
-	if state == nil {
-		conditions.MarkUnknown(s.InfraMachinePool, v1beta2.AROMachinePoolReadyCondition, infrav1.CreatingReason, "nil ProvisioningState was returned")
-		return
-	}
-	s.InfraMachinePool.Status.ProvisioningState = string(*state)
-	if *state == arohcp.ProvisioningStateSucceeded {
-		conditions.MarkTrue(s.InfraMachinePool, v1beta2.AROMachinePoolReadyCondition)
-		return
-	}
-	reason := infrav1.CreatingReason
-	if *state == arohcp.ProvisioningStateUpdating {
-		reason = infrav1.UpdatingReason
-	}
-	conditions.MarkFalse(s.InfraMachinePool, v1beta2.AROMachinePoolReadyCondition, reason, clusterv1.ConditionSeverityInfo, "ProvisioningState=%s", string(*state))
-}
-
 // SetLongRunningOperationState will set the future on the AROMachinePool status to allow the resource to continue
 // in the next reconciliation.
 func (s *AROMachinePoolScope) SetLongRunningOperationState(future *infrav1.Future) {
@@ -187,7 +150,7 @@ func (s *AROMachinePoolScope) UpdatePutStatus(condition clusterv1.ConditionType,
 		conditions.MarkTrue(s.InfraMachinePool, condition)
 	case azure.IsOperationNotDoneError(err):
 		reason := infrav1.CreatingReason
-		if s.InfraMachinePool.Status.ProvisioningState == string(arohcp.ProvisioningStateUpdating) {
+		if s.InfraMachinePool.Status.ProvisioningState == ProvisioningStateUpdating {
 			reason = infrav1.UpdatingReason
 		}
 		conditions.MarkFalse(s.InfraMachinePool, condition, reason, clusterv1.ConditionSeverityInfo, "%s creating or updating", service)
@@ -265,8 +228,8 @@ func (s *AROMachinePoolScope) SetAgentPoolReplicas(replicas int32) {
 
 // SetAgentPoolReady sets the flag that indicates if the agent pool is ready or not.
 func (s *AROMachinePoolScope) SetAgentPoolReady(ready bool) {
-	if s.InfraMachinePool.Status.ProvisioningState != string(arohcp.ProvisioningStateSucceeded) &&
-		s.InfraMachinePool.Status.ProvisioningState != string(arohcp.ProvisioningStateUpdating) {
+	if s.InfraMachinePool.Status.ProvisioningState != ProvisioningStateSucceeded &&
+		s.InfraMachinePool.Status.ProvisioningState != ProvisioningStateUpdating {
 		ready = false
 	}
 	s.InfraMachinePool.Status.Ready = ready
@@ -311,4 +274,114 @@ func (s *AROMachinePoolScope) ClusterName() string {
 // Namespace returns the cluster namespace.
 func (s *AROMachinePoolScope) Namespace() string {
 	return s.Cluster.Namespace
+}
+
+// HcpOpenShiftNodePoolProperties returns the properties for the ASO HcpOpenShiftClusterNodePool resource.
+func (s *AROMachinePoolScope) HcpOpenShiftNodePoolProperties() *asoredhatopenshiftv1.NodePoolProperties {
+	props := &asoredhatopenshiftv1.NodePoolProperties{}
+
+	// Set auto-repair
+	props.AutoRepair = ptr.To(s.InfraMachinePool.Spec.AutoRepair)
+
+	// Set autoscaling or replicas
+	if s.InfraMachinePool.Spec.Autoscaling != nil {
+		props.AutoScaling = &asoredhatopenshiftv1.NodePoolAutoScaling{
+			Min: ptr.To(s.InfraMachinePool.Spec.Autoscaling.MinReplicas),
+			Max: ptr.To(s.InfraMachinePool.Spec.Autoscaling.MaxReplicas),
+		}
+	} else if s.MachinePool.Spec.Replicas != nil {
+		props.Replicas = ptr.To(int(*s.MachinePool.Spec.Replicas))
+	}
+
+	// Set labels
+	if len(s.InfraMachinePool.Spec.Labels) > 0 {
+		labels := make([]asoredhatopenshiftv1.Label, 0, len(s.InfraMachinePool.Spec.Labels))
+		for key, value := range s.InfraMachinePool.Spec.Labels {
+			labels = append(labels, asoredhatopenshiftv1.Label{
+				Key:   ptr.To(key),
+				Value: ptr.To(value),
+			})
+		}
+		props.Labels = labels
+	}
+
+	// Set taints
+	if len(s.InfraMachinePool.Spec.Taints) > 0 {
+		taints := make([]asoredhatopenshiftv1.Taint, 0, len(s.InfraMachinePool.Spec.Taints))
+		for _, taint := range s.InfraMachinePool.Spec.Taints {
+			asoTaint := asoredhatopenshiftv1.Taint{
+				Key: ptr.To(taint.Key),
+			}
+			if taint.Value != "" {
+				asoTaint.Value = ptr.To(taint.Value)
+			}
+			// Convert effect
+			switch taint.Effect {
+			case corev1.TaintEffectNoSchedule:
+				asoTaint.Effect = ptr.To(asoredhatopenshiftv1.Effect_NoSchedule)
+			case corev1.TaintEffectPreferNoSchedule:
+				asoTaint.Effect = ptr.To(asoredhatopenshiftv1.Effect_PreferNoSchedule)
+			case corev1.TaintEffectNoExecute:
+				asoTaint.Effect = ptr.To(asoredhatopenshiftv1.Effect_NoExecute)
+			}
+			taints = append(taints, asoTaint)
+		}
+		props.Taints = taints
+	}
+
+	// Set version
+	if s.InfraMachinePool.Spec.Version != "" {
+		props.Version = &asoredhatopenshiftv1.NodePoolVersionProfile{
+			Id:           ptr.To(s.InfraMachinePool.Spec.Version),
+			ChannelGroup: ptr.To(string(s.ControlPlane.Spec.ChannelGroup)),
+		}
+	}
+
+	// Set platform configuration
+	platform := &asoredhatopenshiftv1.NodePoolPlatformProfile{}
+
+	// VM size
+	if s.InfraMachinePool.Spec.Platform.VMSize != "" {
+		platform.VmSize = ptr.To(s.InfraMachinePool.Spec.Platform.VMSize)
+	}
+
+	// Availability zone
+	if s.InfraMachinePool.Spec.Platform.AvailabilityZone != "" {
+		platform.AvailabilityZone = ptr.To(s.InfraMachinePool.Spec.Platform.AvailabilityZone)
+	}
+
+	// OSDisk configuration
+	osDisk := &asoredhatopenshiftv1.OsDiskProfile{}
+	if s.InfraMachinePool.Spec.Platform.DiskSizeGiB > 0 {
+		osDisk.SizeGiB = ptr.To(int(s.InfraMachinePool.Spec.Platform.DiskSizeGiB))
+	}
+
+	// Disk storage account type
+	if s.InfraMachinePool.Spec.Platform.DiskStorageAccountType != "" {
+		switch s.InfraMachinePool.Spec.Platform.DiskStorageAccountType {
+		case "Premium_LRS":
+			osDisk.DiskStorageAccountType = ptr.To(asoredhatopenshiftv1.OsDiskProfile_DiskStorageAccountType_Premium_LRS)
+		case "StandardSSD_LRS":
+			osDisk.DiskStorageAccountType = ptr.To(asoredhatopenshiftv1.OsDiskProfile_DiskStorageAccountType_StandardSSD_LRS)
+		case "Standard_LRS":
+			osDisk.DiskStorageAccountType = ptr.To(asoredhatopenshiftv1.OsDiskProfile_DiskStorageAccountType_Standard_LRS)
+		}
+	}
+
+	platform.OsDisk = osDisk
+
+	// Subnet - use reference if SubnetRef is set, otherwise use direct ID
+	if s.InfraMachinePool.Spec.Platform.SubnetRef != "" {
+		platform.SubnetReference = &genruntime.ResourceReference{
+			ARMID: s.InfraMachinePool.Spec.Platform.Subnet,
+		}
+	} else if s.InfraMachinePool.Spec.Platform.Subnet != "" {
+		platform.SubnetReference = &genruntime.ResourceReference{
+			ARMID: s.InfraMachinePool.Spec.Platform.Subnet,
+		}
+	}
+
+	props.Platform = platform
+
+	return props
 }

@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/mock_azure"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
-	arohcp "sigs.k8s.io/cluster-api-provider-azure/exp/third_party/aro-hcp/api/v20240610preview/armredhatopenshifthcp"
 )
 
 // fakeTokenCredential implements azcore.TokenCredential for testing
@@ -158,10 +157,9 @@ func TestNewAROControlPlaneScope(t *testing.T) {
 
 func TestAROControlPlaneScope_SetAPIURL(t *testing.T) {
 	testCases := []struct {
-		name       string
-		url        *string
-		visibility *arohcp.Visibility
-		expected   string
+		name     string
+		url      *string
+		expected string
 	}{
 		{
 			name:     "set API URL",
@@ -181,7 +179,7 @@ func TestAROControlPlaneScope_SetAPIURL(t *testing.T) {
 			scope := &AROControlPlaneScope{
 				ControlPlane: &cplane.AROControlPlane{},
 			}
-			scope.SetAPIURL(tc.url, tc.visibility)
+			scope.SetAPIURL(tc.url)
 			g.Expect(scope.ControlPlane.Status.APIURL).To(Equal(tc.expected))
 		})
 	}
@@ -266,27 +264,27 @@ func TestAROControlPlaneScope_MakeEmptyKubeConfigSecret(t *testing.T) {
 func TestAROControlPlaneScope_SetProvisioningState(t *testing.T) {
 	testCases := []struct {
 		name                    string
-		state                   *arohcp.ProvisioningState
+		state                   string
 		expectedReady           bool
 		expectedConditionStatus corev1.ConditionStatus
 		expectedConditionReason string
 	}{
 		{
-			name:                    "nil state",
-			state:                   nil,
+			name:                    "empty state",
+			state:                   "",
 			expectedReady:           false,
 			expectedConditionStatus: corev1.ConditionUnknown,
 			expectedConditionReason: infrav1.CreatingReason,
 		},
 		{
 			name:                    "succeeded state",
-			state:                   ptr.To(arohcp.ProvisioningStateSucceeded),
+			state:                   ProvisioningStateSucceeded,
 			expectedReady:           true,
 			expectedConditionStatus: corev1.ConditionTrue,
 		},
 		{
 			name:                    "accepted state",
-			state:                   ptr.To(arohcp.ProvisioningStateAccepted),
+			state:                   "Accepted",
 			expectedReady:           false,
 			expectedConditionStatus: corev1.ConditionFalse,
 			expectedConditionReason: infrav1.CreatingReason,
@@ -499,39 +497,21 @@ func TestAROControlPlaneScope_SetStatusVersion(t *testing.T) {
 
 	testCases := []struct {
 		name            string
-		versionProfile  *arohcp.VersionProfile
+		versionID       string
 		expectedVersion string
 		description     string
 	}{
 		{
-			name:            "nil version profile",
-			versionProfile:  nil,
+			name:            "empty version ID",
+			versionID:       "",
 			expectedVersion: "",
-			description:     "should handle nil version profile gracefully",
+			description:     "should handle empty version ID gracefully",
 		},
 		{
-			name: "version profile with nil ID",
-			versionProfile: &arohcp.VersionProfile{
-				ID: nil,
-			},
-			expectedVersion: "",
-			description:     "should handle nil version ID gracefully",
-		},
-		{
-			name: "version profile with valid ID",
-			versionProfile: &arohcp.VersionProfile{
-				ID: ptr.To("4.14.5"),
-			},
+			name:            "valid version ID",
+			versionID:       "4.14.5",
 			expectedVersion: "4.14.5",
 			description:     "should set version when ID is provided",
-		},
-		{
-			name: "version profile with empty ID",
-			versionProfile: &arohcp.VersionProfile{
-				ID: ptr.To(""),
-			},
-			expectedVersion: "",
-			description:     "should handle empty version ID",
 		},
 	}
 
@@ -555,7 +535,7 @@ func TestAROControlPlaneScope_SetStatusVersion(t *testing.T) {
 			}
 
 			// Call SetStatusVersion
-			scope.SetStatusVersion(tc.versionProfile)
+			scope.SetStatusVersion(tc.versionID)
 
 			// Verify the result
 			g.Expect(scope.ControlPlane.Status.Version).To(Equal(tc.expectedVersion), tc.description)
@@ -698,9 +678,9 @@ func TestAROControlPlaneScope_ShouldReconcileKubeconfig(t *testing.T) {
 					Name:              secret.Name(cluster.Name, secret.Kubeconfig),
 					Namespace:         cluster.Namespace,
 					CreationTimestamp: metav1.Now(),
-				Annotations: map[string]string{
-					"aro.azure.com/kubeconfig-last-updated": time.Now().Format(time.RFC3339),
-				},
+					Annotations: map[string]string{
+						"aro.azure.com/kubeconfig-last-updated": time.Now().Format(time.RFC3339),
+					},
 				},
 				Data: map[string][]byte{
 					secret.KubeconfigDataName: []byte("fake-kubeconfig"),
