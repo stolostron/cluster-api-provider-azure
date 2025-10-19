@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hcpopenshiftnodepools_aso
+package hcpopenshiftnodepools
 
 import (
 	"testing"
@@ -44,7 +44,7 @@ func TestServiceName(t *testing.T) {
 	name := s.Name()
 
 	g.Expect(name).To(Equal(serviceName))
-	g.Expect(name).To(Equal("hcpopenshiftnodepools_aso"))
+	g.Expect(name).To(Equal("hcpopenshiftnodepools"))
 }
 
 func TestNew(t *testing.T) {

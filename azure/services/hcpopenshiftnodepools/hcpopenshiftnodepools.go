@@ -14,10 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package hcpopenshiftnodepools_aso provides ASO-based HCP OpenShift node pool management.
-//
-//nolint:revive // Package name with underscore is intentional to distinguish ASO implementation
-package hcpopenshiftnodepools_aso
+// Package hcpopenshiftnodepools provides ASO-based HCP OpenShift node pool management.
+package hcpopenshiftnodepools
 
 import (
 	"context"
@@ -39,7 +37,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
-const serviceName = "hcpopenshiftnodepools_aso"
+const serviceName = "hcpopenshiftnodepools"
 
 // Service provides ASO-based operations on HCP OpenShift node pools.
 type Service struct {
@@ -62,7 +60,7 @@ func (s *Service) Name() string {
 
 // Reconcile creates or updates the HcpOpenShiftClustersNodePool ASO resource.
 func (s *Service) Reconcile(ctx context.Context) error {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools_aso.Service.Reconcile")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools.Service.Reconcile")
 	defer done()
 
 	log.V(4).Info("reconciling HcpOpenShiftClustersNodePool with ASO")
@@ -156,7 +154,7 @@ func (s *Service) Reconcile(ctx context.Context) error {
 
 // Delete deletes the HcpOpenShiftClustersNodePool ASO resource.
 func (s *Service) Delete(ctx context.Context) error {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools_aso.Service.Delete")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools.Service.Delete")
 	defer done()
 
 	log.V(4).Info("deleting HcpOpenShiftClustersNodePool ASO resource")
@@ -220,7 +218,7 @@ func (s *Service) IsManaged(ctx context.Context) (bool, error) {
 
 // Pause pauses the HcpOpenShiftClustersNodePool reconciliation.
 func (s *Service) Pause(ctx context.Context) error {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools_aso.Service.Pause")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools.Service.Pause")
 	defer done()
 
 	log.V(4).Info("pausing HcpOpenShiftClustersNodePool reconciliation")
@@ -254,7 +252,7 @@ func (s *Service) Pause(ctx context.Context) error {
 
 // buildHcpOpenShiftNodePool builds the HcpOpenShiftClustersNodePool ASO resource from the scope.
 func (s *Service) buildHcpOpenShiftNodePool(ctx context.Context) (*asoredhatopenshiftv1.HcpOpenShiftClustersNodePool, error) {
-	_, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools_aso.Service.buildHcpOpenShiftNodePool")
+	_, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftnodepools.Service.buildHcpOpenShiftNodePool")
 	defer done()
 
 	// Get the basic node pool information
@@ -282,6 +280,8 @@ func (s *Service) buildHcpOpenShiftNodePool(ctx context.Context) (*asoredhatopen
 		},
 		Spec: asoredhatopenshiftv1.HcpOpenShiftClustersNodePool_Spec{
 			AzureName: nodePoolName,
+			Location:  ptr.To(s.Scope.ControlPlane.Spec.Platform.Location),
+			Tags:      s.Scope.InfraMachinePool.Spec.AdditionalTags,
 		},
 	}
 

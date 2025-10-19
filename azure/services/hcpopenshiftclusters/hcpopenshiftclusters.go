@@ -14,10 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package hcpopenshiftclusters_aso provides ASO-based HCP OpenShift cluster management.
-//
-//nolint:revive // Package name with underscore is intentional to distinguish ASO implementation
-package hcpopenshiftclusters_aso
+// Package hcpopenshiftclusters provides ASO-based HCP OpenShift cluster management.
+package hcpopenshiftclusters
 
 import (
 	"context"
@@ -41,7 +39,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
-const serviceName = "hcpopenshiftclusters_aso"
+const serviceName = "hcpopenshiftclusters"
 
 // Service provides ASO-based operations on HCP OpenShift clusters.
 type Service struct {
@@ -64,7 +62,7 @@ func (s *Service) Name() string {
 
 // Reconcile creates or updates the HcpOpenShiftCluster ASO resource.
 func (s *Service) Reconcile(ctx context.Context) error {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters_aso.Service.Reconcile")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.Reconcile")
 	defer done()
 
 	log.V(4).Info("reconciling HcpOpenShiftCluster with ASO")
@@ -198,7 +196,7 @@ func (s *Service) Reconcile(ctx context.Context) error {
 
 // Delete deletes the HcpOpenShiftCluster ASO resource.
 func (s *Service) Delete(ctx context.Context) error {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters_aso.Service.Delete")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.Delete")
 	defer done()
 
 	log.V(4).Info("deleting HcpOpenShiftCluster ASO resource")
@@ -262,7 +260,7 @@ func (s *Service) IsManaged(ctx context.Context) (bool, error) {
 
 // Pause pauses the HcpOpenShiftCluster reconciliation.
 func (s *Service) Pause(ctx context.Context) error {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters_aso.Service.Pause")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.Pause")
 	defer done()
 
 	log.V(4).Info("pausing HcpOpenShiftCluster reconciliation")
@@ -296,7 +294,7 @@ func (s *Service) Pause(ctx context.Context) error {
 
 // buildHcpOpenShiftCluster builds the HcpOpenShiftCluster ASO resource from the scope.
 func (s *Service) buildHcpOpenShiftCluster(ctx context.Context) (*asoredhatopenshiftv1.HcpOpenShiftCluster, error) {
-	_, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters_aso.Service.buildHcpOpenShiftCluster")
+	_, _, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.buildHcpOpenShiftCluster")
 	defer done()
 
 	// Get the basic cluster information
@@ -444,7 +442,7 @@ func (s *Service) setHcpClusterReadyCondition(readyCondition *conditions.Conditi
 // and be owned by the HcpOpenShiftCluster before it can populate it with admin credentials.
 // Returns true if the secret was created, false if it already existed.
 func (s *Service) ensureKubeconfigSecretWithOwner(ctx context.Context, hcpCluster *asoredhatopenshiftv1.HcpOpenShiftCluster) (bool, error) {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters_aso.Service.ensureKubeconfigSecretWithOwner")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "hcpopenshiftclusters.Service.ensureKubeconfigSecretWithOwner")
 	defer done()
 
 	secretName := secret.Name(s.Scope.Cluster.Name, secret.Kubeconfig)
