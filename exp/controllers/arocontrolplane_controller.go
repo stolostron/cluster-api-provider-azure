@@ -177,6 +177,8 @@ func (r *AROControlPlaneReconciler) hcpClusterToAROControlPlane(_ context.Contex
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/finalizers,verbs=update
 //+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclusters,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclusters/status,verbs=get;list;watch
+//+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclustersexternalauths,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclustersexternalauths/status,verbs=get;list;watch
 
 // Reconcile will reconcile AROControlPlane resources.
 func (r *AROControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {

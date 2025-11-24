@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/groups"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclusters"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclustersexternalauth"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/keyvaults"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/networksecuritygroups"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
@@ -71,6 +72,10 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 	if err != nil {
 		return nil, err
 	}
+	hpcOpenshiftExternalAuthSvc, err := hcpopenshiftclustersexternalauth.New(scope)
+	if err != nil {
+		return nil, err
+	}
 	acs := &aroControlPlaneService{
 		kubeclient: scope.Client,
 		scope:      scope,
@@ -83,7 +88,8 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 			keyVaultSvc,
 			userassignedidentities.New(scope),
 			roleassignmentsaso.New(scope),
-			hpcOpenshiftASOSvc, // ASO-based cluster provisioning
+			hpcOpenshiftASOSvc,             // ASO-based cluster provisioning
+			hpcOpenshiftExternalAuthSvc,    // ASO-based external auth configuration
 			// hpcOpenshiftSecretsSvc removed - kubeconfig now comes from ASO secret
 		},
 		skuCache: skuCache,

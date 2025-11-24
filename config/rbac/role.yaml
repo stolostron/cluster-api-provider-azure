@@ -329,25 +329,7 @@ rules:
   - redhatopenshift.azure.com
   resources:
   - hcpopenshiftclusters
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - redhatopenshift.azure.com
-  resources:
-  - hcpopenshiftclusters/status
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - redhatopenshift.azure.com
-  resources:
+  - hcpopenshiftclustersexternalauths
   - hcpopenshiftclustersnodepools
   verbs:
   - create
@@ -360,6 +342,8 @@ rules:
 - apiGroups:
   - redhatopenshift.azure.com
   resources:
+  - hcpopenshiftclusters/status
+  - hcpopenshiftclustersexternalauths/status
   - hcpopenshiftclustersnodepools/status
   verbs:
   - get

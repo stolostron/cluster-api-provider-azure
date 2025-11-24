@@ -128,6 +128,8 @@ func (ampr *AROMachinePoolReconciler) SetupWithManager(ctx context.Context, mgr 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=aromachinepools,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=aromachinepools/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=aromachinepools/finalizers,verbs=update
+// +kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclustersnodepools,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclustersnodepools/status,verbs=get;list;watch
 
 // Reconcile idempotently gets, creates, and updates a machine pool.
 func (ampr *AROMachinePoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {

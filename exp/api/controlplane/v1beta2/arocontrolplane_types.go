@@ -125,6 +125,23 @@ type AROControlPlaneSpec struct { //nolint: maligned
 	// AdditionalTags are user-defined tags to be added on the AWS resources associated with the control plane.
 	// +optional
 	AdditionalTags infrav1.Tags `json:"additionalTags,omitempty"`
+
+	// EnableExternalAuthProviders enables external authentication configuration for the cluster.
+	//
+	// +kubebuilder:default=false
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="enableExternalAuthProviders is immutable"
+	// +optional
+	EnableExternalAuthProviders bool `json:"enableExternalAuthProviders,omitempty"`
+
+	// ExternalAuthProviders are external OIDC identity providers that can issue tokens for this cluster.
+	// Can only be set if "enableExternalAuthProviders" is set to "True".
+	//
+	// At most one provider can be configured.
+	//
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=1
+	ExternalAuthProviders []ExternalAuthProvider `json:"externalAuthProviders,omitempty"`
 }
 
 // AROPlatformProfileControlPlane represents the Azure platform configuration.
