@@ -1,0 +1,14 @@
+input-file: https://raw.githubusercontent.com/Azure/ARO-HCP/refs/heads/main/api/redhatopenshift/resource-manager/Microsoft.RedHatOpenShift/hcpclusters/preview/2024-06-10-preview/openapi.json
+go:
+  namespace: redhatopenshift
+  project-folder: ./
+  output-folder: $(project-folder)/api/v20240610preview/armredhatopenshifthcp
+  disallow-unknown-fields: true
+  # azure-arm forces a go.mod file to be written to output-folder,
+  # so naturally it requires module and module-version options.
+  # But we delete the go.mod file so the values don't matter.
+  azure-arm: true
+  module: "does_not_matter"
+  module-version: "0.0.1"
+  generate-fakes: false
+  inject-spans: false
