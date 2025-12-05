@@ -16,7 +16,7 @@ limitations under the License.
 
 package v1beta2
 
-// ExternalAuthProvider is an external OIDC identity provider that can issue tokens for this cluster
+// ExternalAuthProvider is an external OIDC identity provider that can issue tokens for this cluster.
 type ExternalAuthProvider struct {
 	// Name of the OIDC provider
 	//
@@ -56,7 +56,7 @@ type ExternalAuthProvider struct {
 // +kubebuilder:validation:MinLength=1
 type TokenAudience string
 
-// TokenIssuer describes attributes of the OIDC token issuer
+// TokenIssuer describes attributes of the OIDC token issuer.
 type TokenIssuer struct {
 	// URL is the serving URL of the token issuer.
 	// Must use the https:// scheme.
@@ -205,14 +205,14 @@ type UsernameClaimMapping struct {
 type UsernamePrefixPolicy string
 
 const (
-	// NoOpinion let's the cluster assign prefixes.  If the username claim is email, there is no prefix
-	// If the username claim is anything else, it is prefixed by the issuerURL
+	// NoOpinion let's the cluster assign prefixes.  If the username claim is email, there is no prefix.
+	// If the username claim is anything else, it is prefixed by the issuerURL.
 	NoOpinion UsernamePrefixPolicy = ""
 
-	// NoPrefix means the username claim value will not have any  prefix
+	// NoPrefix means the username claim value will not have any  prefix.
 	NoPrefix UsernamePrefixPolicy = "NoPrefix"
 
-	// Prefix means the prefix value must be specified.  It cannot be empty
+	// Prefix means the prefix value must be specified.  It cannot be empty.
 	Prefix UsernamePrefixPolicy = "Prefix"
 )
 

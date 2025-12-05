@@ -185,6 +185,36 @@ func TestAROControlPlaneScope_SetAPIURL(t *testing.T) {
 	}
 }
 
+func TestAROControlPlaneScope_SetConsoleURL(t *testing.T) {
+	testCases := []struct {
+		name     string
+		url      *string
+		expected string
+	}{
+		{
+			name:     "set Console URL",
+			url:      ptr.To("https://console.test.com"),
+			expected: "https://console.test.com",
+		},
+		{
+			name:     "nil URL",
+			url:      nil,
+			expected: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			scope := &AROControlPlaneScope{
+				ControlPlane: &cplane.AROControlPlane{},
+			}
+			scope.SetConsoleURL(tc.url)
+			g.Expect(scope.ControlPlane.Status.ConsoleURL).To(Equal(tc.expected))
+		})
+	}
+}
+
 func TestAROControlPlaneScope_SetKubeconfig(t *testing.T) {
 	g := NewWithT(t)
 

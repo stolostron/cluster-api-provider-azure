@@ -226,6 +226,11 @@ func (s *AROMachinePoolScope) SetAgentPoolReplicas(replicas int32) {
 	s.InfraMachinePool.Status.Replicas = replicas
 }
 
+// SetAgentPoolProvisioningState sets the provisioning state for the agent pool.
+func (s *AROMachinePoolScope) SetAgentPoolProvisioningState(state string) {
+	s.InfraMachinePool.Status.ProvisioningState = state
+}
+
 // SetAgentPoolReady sets the flag that indicates if the agent pool is ready or not.
 func (s *AROMachinePoolScope) SetAgentPoolReady(ready bool) {
 	if s.InfraMachinePool.Status.ProvisioningState != ProvisioningStateSucceeded &&

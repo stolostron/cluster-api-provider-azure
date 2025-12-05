@@ -177,6 +177,22 @@ func (s *AROControlPlaneScope) SetAPIURL(url *string) {
 	}
 }
 
+// SetConsoleURL sets the Console URL for the ARO control plane.
+func (s *AROControlPlaneScope) SetConsoleURL(url *string) {
+	if url != nil {
+		s.ControlPlane.Status.ConsoleURL = *url
+	}
+}
+
+// SetControlPlaneInitialized sets the control plane initialized status.
+// This is part of the Cluster API contract and signals that the control plane can accept requests.
+func (s *AROControlPlaneScope) SetControlPlaneInitialized(initialized bool) {
+	if s.ControlPlane.Status.Initialization == nil {
+		s.ControlPlane.Status.Initialization = &cplane.AROControlPlaneInitializationStatus{}
+	}
+	s.ControlPlane.Status.Initialization.ControlPlaneInitialized = initialized
+}
+
 // SetKubeconfig sets the kubeconfig data and expiration timestamp.
 func (s *AROControlPlaneScope) SetKubeconfig(kubeconfig *string, kubeconfigExpirationTimestamp *time.Time) {
 	s.Kubeconfig = kubeconfig

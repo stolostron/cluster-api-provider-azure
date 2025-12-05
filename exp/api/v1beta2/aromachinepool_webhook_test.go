@@ -154,3 +154,93 @@ func TestValidateOCPVersionAROMachinePool(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateNodePoolName(t *testing.T) {
+	testCases := []struct {
+		name         string
+		nodePoolName string
+		expectError  bool
+		description  string
+	}{
+		{
+			name:         "valid short name",
+			nodePoolName: "abc",
+			expectError:  false,
+			description:  "should accept 3 character name",
+		},
+		{
+			name:         "valid name with hyphens",
+			nodePoolName: "w-uksouth-0",
+			expectError:  false,
+			description:  "should accept name with hyphens",
+		},
+		{
+			name:         "valid max length name",
+			nodePoolName: "a123456789012bc",
+			expectError:  false,
+			description:  "should accept 15 character name",
+		},
+		{
+			name:         "too long name",
+			nodePoolName: "mveber2-int-mp-0",
+			expectError:  true,
+			description:  "should reject name longer than 15 characters",
+		},
+		{
+			name:         "too short name",
+			nodePoolName: "ab",
+			expectError:  true,
+			description:  "should reject name shorter than 3 characters",
+		},
+		{
+			name:         "starts with number",
+			nodePoolName: "0pool",
+			expectError:  true,
+			description:  "should reject name starting with number",
+		},
+		{
+			name:         "ends with hyphen",
+			nodePoolName: "pool-",
+			expectError:  true,
+			description:  "should reject name ending with hyphen",
+		},
+		{
+			name:         "empty name",
+			nodePoolName: "",
+			expectError:  true,
+			description:  "should reject empty name",
+		},
+		{
+			name:         "contains underscore",
+			nodePoolName: "pool_name",
+			expectError:  true,
+			description:  "should reject name with underscore",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			machinePool := &AROMachinePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pool",
+					Namespace: "default",
+				},
+				Spec: AROMachinePoolSpec{
+					NodePoolName: tc.nodePoolName,
+					Version:      "4.19.0",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
+			err := machinePool.Validate(fakeClient)
+
+			if tc.expectError {
+				g.Expect(err).To(HaveOccurred(), tc.description)
+			} else {
+				g.Expect(err).NotTo(HaveOccurred(), tc.description)
+			}
+		})
+	}
+}

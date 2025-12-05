@@ -3,7 +3,7 @@ kind: Component
 namespace: capz-system
 resources:
   # The ASO version here is managed by `make generate-aso-crds`
-  - https://raw.githubusercontent.com/marek-veber/azure-service-operator/refs/heads/v2.13.0-hcpclusters/download/v2.13.0-hcpclusters/azureserviceoperator_v2.13.0-hcpclusters.yaml
+  - https://github.com/marek-veber/azure-service-operator/releases/download/v2.13.0-hcpclusters.0/azureserviceoperator_v2.13.0-hcpclusters.0.yaml
   - crds.yaml
   - settings.yaml
 patches:

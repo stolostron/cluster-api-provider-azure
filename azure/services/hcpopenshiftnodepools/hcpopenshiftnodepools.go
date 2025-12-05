@@ -106,6 +106,11 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	// Mirror the HcpOpenShiftClustersNodePool Ready condition to AROMachinePool
 	s.setNodePoolReadyCondition(readyCondition, provisioningState)
 
+	// Set the provisioning state in the AROMachinePool status
+	if provisioningState != "" {
+		s.Scope.SetAgentPoolProvisioningState(string(provisioningState))
+	}
+
 	// Check Azure provisioning state first (authoritative for Azure resource status)
 	if provisioningState != "" {
 		// Azure reports provisioning failed
@@ -299,7 +304,7 @@ func (s *Service) buildHcpOpenShiftNodePool(ctx context.Context) (*asoredhatopen
 
 // getNodePoolName returns the node pool name for the HcpOpenShiftClustersNodePool resource.
 func (s *Service) getNodePoolName() string {
-	return s.Scope.InfraMachinePool.Name
+	return s.Scope.InfraMachinePool.Spec.NodePoolName
 }
 
 // findCondition finds a condition by type in the ASO conditions list.

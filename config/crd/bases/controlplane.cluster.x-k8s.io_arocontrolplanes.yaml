@@ -27,6 +27,10 @@ spec:
       jsonPath: .status.ready
       name: Ready
       type: string
+    - description: OpenShift Console URL
+      jsonPath: .status.consoleURL
+      name: Console URL
+      type: string
     name: v1beta2
     schema:
       openAPIV3Schema:

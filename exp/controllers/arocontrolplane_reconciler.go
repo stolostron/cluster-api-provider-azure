@@ -25,6 +25,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/secret"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/userassignedidentities"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/vaults"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/virtualnetworks"
+	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
@@ -88,8 +90,8 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 			keyVaultSvc,
 			userassignedidentities.New(scope),
 			roleassignmentsaso.New(scope),
-			hpcOpenshiftASOSvc,             // ASO-based cluster provisioning
-			hpcOpenshiftExternalAuthSvc,    // ASO-based external auth configuration
+			hpcOpenshiftASOSvc,          // ASO-based cluster provisioning
+			hpcOpenshiftExternalAuthSvc, // ASO-based external auth configuration
 			// hpcOpenshiftSecretsSvc removed - kubeconfig now comes from ASO secret
 		},
 		skuCache: skuCache,
@@ -110,7 +112,17 @@ func (s *aroControlPlaneService) reconcile(ctx context.Context) error {
 		serviceName := service.Name()
 		log.V(4).Info(fmt.Sprintf("reconcile-service: %s", serviceName))
 		if err := service.Reconcile(ctx); err != nil {
+			// Special handling for external auth to set condition
+			if serviceName == "hcpopenshiftclustersexternalauth" {
+				conditions.MarkFalse(s.scope.ControlPlane, cplane.ExternalAuthReadyCondition,
+					"ReconciliationFailed", clusterv1.ConditionSeverityWarning, "%s", err.Error())
+			}
 			return errors.Wrapf(err, "failed to reconcile AROControlPlane service %s", service.Name())
+		}
+
+		// Mark external auth as ready if reconciliation succeeded
+		if serviceName == "hcpopenshiftclustersexternalauth" && s.scope.ControlPlane.Spec.EnableExternalAuthProviders {
+			conditions.MarkTrue(s.scope.ControlPlane, cplane.ExternalAuthReadyCondition)
 		}
 	}
 

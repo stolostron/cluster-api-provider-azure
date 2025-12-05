@@ -320,6 +320,7 @@ type AROControlPlaneInitializationStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels.cluster\\.x-k8s\\.io/cluster-name",description="Cluster to which this AROControl belongs"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.ready",description="Control plane infrastructure is ready for worker nodes"
+// +kubebuilder:printcolumn:name="Console URL",type="string",JSONPath=".status.consoleURL",description="OpenShift Console URL"
 // +k8s:defaulter-gen=true
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/status,verbs=get;update;patch
@@ -362,6 +363,9 @@ const (
 
 	// HcpClusterReadyCondition mirrors the Ready condition from the HcpOpenShiftCluster ASO resource.
 	HcpClusterReadyCondition clusterv1.ConditionType = "HcpClusterReady"
+
+	// ExternalAuthReadyCondition reports on the successful configuration of external authentication providers.
+	ExternalAuthReadyCondition clusterv1.ConditionType = "ExternalAuthReady"
 )
 
 // +kubebuilder:object:root=true

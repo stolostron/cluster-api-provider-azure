@@ -97,6 +97,10 @@ func (m *AROMachinePool) Validate(_ client.Client) error {
 		m.Spec.Version,
 		field.NewPath("spec").Child("version")))
 
+	errs = append(errs, validateNodePoolName(
+		m.Spec.NodePoolName,
+		field.NewPath("spec").Child("nodePoolName")))
+
 	if m.Spec.Autoscaling != nil {
 		errs = append(errs, validateMinReplicas(
 			&m.Spec.Autoscaling.MinReplicas,
@@ -409,5 +413,28 @@ func validateOCPVersion(version string, fldPath *field.Path) error {
 	if !ocpSemver.MatchString(version) {
 		return field.Invalid(fldPath, version, "must be a <valid semantic version>")
 	}
+	return nil
+}
+
+// validateNodePoolName validates the node pool name against Azure ARO HCP requirements.
+// Azure requires: ^[a-zA-Z][-a-zA-Z0-9]{1,13}[a-zA-Z0-9]$.
+// This means: starts with letter, 1-13 chars of letters/numbers/hyphens, ends with letter or number.
+// Total length: 3-15 characters.
+func validateNodePoolName(name string, fldPath *field.Path) error {
+	if name == "" {
+		return field.Required(fldPath, "nodePoolName must be specified")
+	}
+
+	// Check length (3-15 characters)
+	if len(name) < 3 || len(name) > 15 {
+		return field.Invalid(fldPath, name, "nodePoolName must be between 3 and 15 characters long")
+	}
+
+	// Validate against Azure pattern: ^[a-zA-Z][-a-zA-Z0-9]{1,13}[a-zA-Z0-9]$
+	nodePoolNamePattern := regexp.MustCompile(`^[a-zA-Z][-a-zA-Z0-9]{1,13}[a-zA-Z0-9]$`)
+	if !nodePoolNamePattern.MatchString(name) {
+		return field.Invalid(fldPath, name, "nodePoolName must start with a letter, contain only letters, numbers, and hyphens, and end with a letter or number (3-15 characters total)")
+	}
+
 	return nil
 }

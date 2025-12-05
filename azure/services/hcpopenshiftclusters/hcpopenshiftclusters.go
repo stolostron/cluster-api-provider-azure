@@ -184,6 +184,29 @@ func (s *Service) Reconcile(ctx context.Context) error {
 			log.V(4).Info("HcpOpenShiftCluster API URL not yet available")
 			return azure.WithTransientError(errors.New("cluster API URL not yet available"), 15)
 		}
+
+		// Mark control plane as initialized when cluster is successfully provisioned
+		// This is required by the Cluster API contract for machine pool creation
+		// IMPORTANT: This must happen BEFORE checking console URL, because machine pools
+		// need to be created before external auth can be configured (which provides console URL)
+		if provisioningState == asoredhatopenshiftv1.ProvisioningState_STATUS_Succeeded {
+			log.V(4).Info("marking control plane as initialized")
+			s.Scope.SetControlPlaneInitialized(true)
+		}
+
+		// Extract Console URL if available
+		// Console URL appears after external auth is configured
+		if appliedCluster.Status.Properties != nil &&
+			appliedCluster.Status.Properties.Console != nil &&
+			appliedCluster.Status.Properties.Console.Url != nil {
+			consoleURL := appliedCluster.Status.Properties.Console.Url
+			log.V(4).Info("setting Console URL from HcpOpenShiftCluster", "url", *consoleURL)
+			s.Scope.SetConsoleURL(consoleURL)
+		} else if s.Scope.ControlPlane.Spec.EnableExternalAuthProviders {
+			// Console URL not available yet - this is expected before external auth is configured
+			// Don't block - allow external auth service to run which will trigger console URL creation
+			log.V(4).Info("HcpOpenShiftCluster Console URL not yet available (will be set after external auth is configured)")
+		}
 	} else {
 		// No Azure provisioning state yet - cluster just created
 		log.V(4).Info("HcpOpenShiftCluster Azure provisioning state not yet available, will requeue")

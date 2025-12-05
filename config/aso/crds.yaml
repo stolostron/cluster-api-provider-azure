@@ -6,7 +6,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: bastionhosts.network.azure.com
 spec:
   conversion:
@@ -1703,7 +1703,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: extensions.kubernetesconfiguration.azure.com
 spec:
   conversion:
@@ -4176,7 +4176,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: fleetsmembers.containerservice.azure.com
 spec:
   conversion:
@@ -4738,7 +4738,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: hcpopenshiftclusters.redhatopenshift.azure.com
 spec:
   conversion:
@@ -6683,7 +6683,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: hcpopenshiftclustersexternalauths.redhatopenshift.azure.com
 spec:
   conversion:
@@ -7966,7 +7966,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: hcpopenshiftclustersnodepools.redhatopenshift.azure.com
 spec:
   conversion:
@@ -9261,7 +9261,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: managedclusters.containerservice.azure.com
 spec:
   conversion:
@@ -50244,7 +50244,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: managedclustersagentpools.containerservice.azure.com
 spec:
   conversion:
@@ -63141,7 +63141,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: natgateways.network.azure.com
 spec:
   conversion:
@@ -64615,7 +64615,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: privateendpoints.network.azure.com
 spec:
   conversion:
@@ -67295,7 +67295,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: resourcegroups.resources.azure.com
 spec:
   conversion:
@@ -67764,7 +67764,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: roleassignments.authorization.azure.com
 spec:
   conversion:
@@ -69063,7 +69063,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: userassignedidentities.managedidentity.azure.com
 spec:
   conversion:
@@ -70370,7 +70370,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: virtualnetworks.network.azure.com
 spec:
   conversion:
@@ -72216,7 +72216,7 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.16.3
   labels:
     app.kubernetes.io/name: azure-service-operator
-    app.kubernetes.io/version: v2.13.0-hcpclusters.0
+    app.kubernetes.io/version: v2.13.0-hcpclusters.1
   name: virtualnetworkssubnets.network.azure.com
 spec:
   conversion:
