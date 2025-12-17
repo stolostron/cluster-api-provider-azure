@@ -2,7 +2,7 @@ default_stages: [pre-commit, pre-push]
 default_install_hook_types: [pre-commit, pre-push]
 repos:
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.21.1
+    rev: v8.30.0
     hooks:
       - id: gitleaks
         stages: [pre-commit]
