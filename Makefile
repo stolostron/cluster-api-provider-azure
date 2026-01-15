@@ -392,7 +392,7 @@ create-management-cluster: $(KUSTOMIZE) $(ENVSUBST) $(KUBECTL) $(KIND) ## Create
 	# Wait for CAPZ deployments
 	$(KUBECTL) wait --for=condition=Available --timeout=5m -n capz-system deployment --all
 
-	# This is a temporary fix to apply https://github.com/kubernetes-sigs/cluster-api/pull/13177 which stops setting
+	# This is a temporary fix to apply https://github.com/kubernetes-sigs/cluster-api/pull/13177 which stops setting 
 	# ControlPlaneKubeletLocalMode for K8s v1.36+ clusters.
 	# Override kubeadm control plane controller image on the management cluster (temporary fix)
 	# Remove this when CAPI_VERSION above is update to v1.12.2 OR GREATER
