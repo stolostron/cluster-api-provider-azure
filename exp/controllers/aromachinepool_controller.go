@@ -20,7 +20,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +28,6 @@ import (
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -154,12 +152,6 @@ func (ampr *AROMachinePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return reconcile.Result{}, err
 	}
 
-	// Handle deletion early - before requiring owner references
-	// During deletion, the MachinePool may already be deleted
-	if !infraPool.DeletionTimestamp.IsZero() {
-		return ampr.reconcileDeleteWithoutScope(ctx, log, infraPool)
-	}
-
 	// Fetch the owning MachinePool.
 	ownerPool, err := controllers.GetOwnerMachinePool(ctx, ampr.Client, infraPool.ObjectMeta)
 	if err != nil {
@@ -198,7 +190,7 @@ func (ampr *AROMachinePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return reconcile.Result{}, err
 	}
 
-	// Upon first create of an AKS service, the node pools are provided to the CreateOrUpdate call. After the initial
+	// Upon first create of an ARO service, the node pools are provided to the CreateOrUpdate call. After the initial
 	// create of the control plane and node pools, the control plane will transition to initialized. After the control
 	// plane is initialized, we can proceed to reconcile aro machine pools.
 	if controlPlane.Status.Initialization == nil || !controlPlane.Status.Initialization.ControlPlaneInitialized {
@@ -250,6 +242,11 @@ func (ampr *AROMachinePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if annotations.IsPaused(ownerCluster, infraPool) {
 		log.Info("AROMachinePool or linked Cluster is marked as paused. Won't reconcile normally")
 		return ampr.reconcilePause(ctx, acpScope)
+	}
+
+	// Handle deleted machine pools
+	if !infraPool.DeletionTimestamp.IsZero() {
+		return ampr.reconcileDelete(ctx, acpScope)
 	}
 
 	// Handle non-deleted clusters
@@ -339,30 +336,39 @@ func (ampr *AROMachinePoolReconciler) reconcilePause(ctx context.Context, scope 
 	return reconcile.Result{}, nil
 }
 
-// reconcileDeleteWithoutScope handles deletion when owner references may not be available.
-// This can happen when the MachinePool or Cluster has already been deleted.
-func (ampr *AROMachinePoolReconciler) reconcileDeleteWithoutScope(ctx context.Context, log logr.Logger, infraPool *infrav2exp.AROMachinePool) (reconcile.Result, error) {
-	ctx, _, done := tele.StartSpanWithLogger(ctx, "controllers.AROMachinePoolReconciler.reconcileDeleteWithoutScope")
+func (ampr *AROMachinePoolReconciler) reconcileDelete(ctx context.Context, scope *scope.AROMachinePoolScope) (reconcile.Result, error) {
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROMachinePoolReconciler.reconcileDelete")
 	defer done()
 
-	log.Info("Reconciling AROMachinePool delete without full scope")
+	log.Info("Reconciling AROMachinePool delete")
 
-	// If the AROMachinePool is being deleted and we can't get the owner references,
-	// we'll just remove the finalizer. The Azure resources may have already been cleaned up
-	// when the cluster was deleted, or they'll be cleaned up by Azure's garbage collection.
-	// This prevents the AROMachinePool from being stuck in deletion when its owner is gone.
+	// If the entire cluster is being deleted, the ARO cluster deletion will handle the node pool.
+	if scope.Cluster != nil && scope.Cluster.DeletionTimestamp.IsZero() {
+		svc, err := ampr.createAROMachinePoolService(scope, ampr.Timeouts.DefaultedAzureServiceReconcileTimeout())
+		if err != nil {
+			return reconcile.Result{}, errors.Wrap(err, "failed to create an AROMachinePoolService")
+		}
 
-	patchHelper, err := patch.NewHelper(infraPool, ampr.Client)
-	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "failed to create patch helper")
+		if err := svc.Delete(ctx); err != nil {
+			// Handle transient errors
+			var reconcileError azure.ReconcileError
+			if errors.As(err, &reconcileError) && reconcileError.IsTransient() {
+				if azure.IsOperationNotDoneError(reconcileError) {
+					log.V(2).Info("AROMachinePool delete not done", "error", reconcileError.Error())
+				} else {
+					log.V(2).Info("transient failure to delete AROMachinePool, retrying")
+				}
+				return reconcile.Result{RequeueAfter: reconcileError.RequeueAfter()}, nil
+			}
+			return reconcile.Result{}, errors.Wrapf(err, "error deleting AROMachinePool %s/%s", scope.InfraMachinePool.Namespace, scope.InfraMachinePool.Name)
+		}
 	}
 
-	controllerutil.RemoveFinalizer(infraPool, infrav2exp.AROMachinePoolFinalizer)
+	controllerutil.RemoveFinalizer(scope.InfraMachinePool, infrav2exp.AROMachinePoolFinalizer)
 
-	if err := patchHelper.Patch(ctx, infraPool); err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "failed to patch AROMachinePool")
+	if err := scope.PatchObject(ctx); err != nil {
+		return reconcile.Result{}, err
 	}
 
-	log.Info("Successfully removed finalizer from AROMachinePool")
 	return reconcile.Result{}, nil
 }
