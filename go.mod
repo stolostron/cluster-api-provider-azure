@@ -2,14 +2,7 @@ module sigs.k8s.io/cluster-api-provider-azure
 
 go 1.24.6
 
-toolchain go1.25.9
-
-// Workaround for prometheus/common v0.66.0+ breaking change that causes panic
-// in cluster-api test framework's TextParser usage. Pin prometheus dependencies
-// to versions compatible with otel/exporters/prometheus v0.59.1.
-// See: https://github.com/prometheus/common/releases/tag/v0.66.0
-// Remove this once cluster-api/test is updated to use NewTextParser().
-replace github.com/prometheus/otlptranslator => github.com/prometheus/otlptranslator v0.0.0-20250717125610-8549f4ab4f8f
+toolchain go1.24.12
 
 // Workaround for prometheus/common v0.66.0+ breaking change that causes panic
 // in cluster-api test framework's TextParser usage. Pin prometheus dependencies
