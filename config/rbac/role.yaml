@@ -236,18 +236,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - keyvault.azure.com
-  resources:
-  - vaults
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - kubernetesconfiguration.azure.com
   resources:
   - extensions
