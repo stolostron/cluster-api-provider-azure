@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
@@ -46,20 +47,33 @@ type AROControlPlaneSpec struct { //nolint: maligned
 	// Cluster name must be a valid DNS-1035 label, so it must consist of lower case alphanumeric
 	// characters or '-', start with an alphabetic character, end with an alphanumeric character,
 	// and have a maximum length of 54 characters.
+	// Required when using field-based mode. Ignored when Resources is specified.
 	//
 	// +immutable
+	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="aroClusterName is immutable"
 	// +kubebuilder:validation:MaxLength:=54
 	// +kubebuilder:validation:Pattern:=`^[a-z]([-a-z0-9]*[a-z0-9])?$`
-	AroClusterName string `json:"aroClusterName"`
+	AroClusterName string `json:"aroClusterName,omitempty"`
+
+	// Resources are embedded ASO resources to be managed by this AROControlPlane.
+	// When specified, this takes precedence over the field-based configuration (Platform, Network, etc.).
+	// This allows you to define the full infrastructure including HcpOpenShiftCluster and
+	// HcpOpenShiftClustersExternalAuth resources directly using ASO types.
+	//
+	// +optional
+	Resources []runtime.RawExtension `json:"resources,omitempty"`
 
 	// AROPlatformProfileControlPlane represents the Azure platform configuration.
+	// Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
 	Platform AROPlatformProfileControlPlane `json:"platform,omitempty"`
 
 	// Visibility represents the visibility of an API endpoint. Allowed values are public and private; default is public.
+	// Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
 	Visibility string `json:"visibility,omitempty"`
 
 	// Network config for the ARO HCP cluster.
+	// Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
 	// +optional
 	Network *NetworkSpec `json:"network,omitempty"`
 
@@ -127,6 +141,7 @@ type AROControlPlaneSpec struct { //nolint: maligned
 	AdditionalTags infrav1.Tags `json:"additionalTags,omitempty"`
 
 	// EnableExternalAuthProviders enables external authentication configuration for the cluster.
+	// Deprecated: When Resources is specified, this field is ignored. Define HcpOpenShiftClustersExternalAuth in Resources instead.
 	//
 	// +kubebuilder:default=false
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="enableExternalAuthProviders is immutable"
@@ -135,6 +150,7 @@ type AROControlPlaneSpec struct { //nolint: maligned
 
 	// ExternalAuthProviders are external OIDC identity providers that can issue tokens for this cluster.
 	// Can only be set if "enableExternalAuthProviders" is set to "True".
+	// Deprecated: When Resources is specified, this field is ignored. Define HcpOpenShiftClustersExternalAuth in Resources instead.
 	//
 	// At most one provider can be configured.
 	//
@@ -298,6 +314,11 @@ type AROControlPlaneStatus struct {
 	// Available upgrades for the ARO hosted control plane.
 	AvailableUpgrades []string `json:"availableUpgrades,omitempty"`
 
+	// Resources represents the status of ASO resources managed by this AROControlPlane.
+	// This is populated when using the Resources field in the spec.
+	//+optional
+	Resources []infrav1.ResourceStatus `json:"resources,omitempty"`
+
 	// LongRunningOperationStates saves the state for ARO long-running operations so they can be continued on the
 	// next reconciliation loop.
 	// +optional
@@ -366,6 +387,9 @@ const (
 
 	// ExternalAuthReadyCondition reports on the successful configuration of external authentication providers.
 	ExternalAuthReadyCondition clusterv1.ConditionType = "ExternalAuthReady"
+
+	// EncryptionKeyReadyCondition reports on the status of the encryption key for ETCD data encryption.
+	EncryptionKeyReadyCondition clusterv1.ConditionType = "EncryptionKeyReady"
 )
 
 // +kubebuilder:object:root=true
@@ -385,6 +409,16 @@ func (c *AROControlPlane) GetConditions() []metav1.Condition {
 // SetConditions sets the status conditions for the AROControlPlane.
 func (c *AROControlPlane) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
+}
+
+// GetResourceStatuses returns the status of resources.
+func (c *AROControlPlane) GetResourceStatuses() []infrav1.ResourceStatus {
+	return c.Status.Resources
+}
+
+// SetResourceStatuses sets the status of resources.
+func (c *AROControlPlane) SetResourceStatuses(r []infrav1.ResourceStatus) {
+	c.Status.Resources = r
 }
 
 // NodeResourceGroup returns the node resource group name for the ARO control plane.

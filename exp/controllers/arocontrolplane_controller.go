@@ -25,11 +25,13 @@ import (
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
+	"sigs.k8s.io/cluster-api/util/secret"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -115,11 +117,28 @@ func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ct
 			handler.EnqueueRequestsFromMapFunc(r.aroMachinePoolToAROControlPlane),
 		).
 		// Watch for changes to ASO HcpOpenShiftCluster resources
-		// Only reconcile on spec changes (generation changed), not status updates
+		// Reconcile on all update events (spec and status changes)
 		Watches(
 			&asoredhatopenshiftv1.HcpOpenShiftCluster{},
 			handler.EnqueueRequestsFromMapFunc(r.hcpClusterToAROControlPlane),
-			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
+		// Watch for changes to AROCluster infrastructure
+		// Reconcile when infrastructure becomes ready (ResourcesReady condition changes)
+		// We watch all update events to catch status changes (not just spec/generation changes)
+		Watches(
+			&infrav2exp.AROCluster{},
+			handler.EnqueueRequestsFromMapFunc(r.aroClusterToAROControlPlane),
+			builder.WithPredicates(
+				predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue),
+				// Note: We intentionally don't filter by GenerationChangedPredicate here
+				// because we need to catch status updates (ResourcesReady condition changes)
+			),
+		).
+		// Watch for changes to ASO HcpOpenShiftClustersNodePool resources
+		// Reconcile when node pools become ready so we can create ExternalAuth
+		Watches(
+			&asoredhatopenshiftv1.HcpOpenShiftClustersNodePool{},
+			handler.EnqueueRequestsFromMapFunc(r.nodePoolToAROControlPlane),
 		).
 		Owns(&corev1.Secret{}).
 		Build(reconciler)
@@ -134,7 +153,7 @@ func clusterToAROControlPlane(_ context.Context, o client.Object) []ctrl.Request
 	cluster := o.(*clusterv1.Cluster)
 	controlPlaneRef := cluster.Spec.ControlPlaneRef
 	if controlPlaneRef.IsDefined() &&
-		controlPlaneRef.APIGroup == infrav2exp.GroupVersion.Group &&
+		controlPlaneRef.APIGroup == cplane.GroupVersion.Group &&
 		controlPlaneRef.Kind == cplane.AROControlPlaneKind {
 		return []ctrl.Request{{NamespacedName: client.ObjectKey{Namespace: cluster.Namespace, Name: controlPlaneRef.Name}}}
 	}
@@ -152,6 +171,29 @@ func (r *AROControlPlaneReconciler) aroMachinePoolToAROControlPlane(ctx context.
 		return nil
 	}
 	return clusterToAROControlPlane(ctx, cluster)
+}
+
+func (r *AROControlPlaneReconciler) aroClusterToAROControlPlane(ctx context.Context, o client.Object) []ctrl.Request {
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROControlPlaneReconciler.aroClusterToAROControlPlane")
+	defer done()
+
+	aroCluster := o.(*infrav2exp.AROCluster)
+	log.V(4).Info("AROCluster watch triggered", "aroCluster", aroCluster.Name, "namespace", aroCluster.Namespace)
+
+	clusterName := aroCluster.Labels[clusterv1.ClusterNameLabel]
+	if clusterName == "" {
+		log.V(4).Info("AROCluster has no cluster label, skipping", "aroCluster", aroCluster.Name)
+		return nil
+	}
+	cluster, err := util.GetClusterByName(ctx, r.Client, aroCluster.Namespace, clusterName)
+	if client.IgnoreNotFound(err) != nil || cluster == nil {
+		log.V(4).Info("Could not get owner cluster, skipping", "clusterName", clusterName, "error", err)
+		return nil
+	}
+
+	requests := clusterToAROControlPlane(ctx, cluster)
+	log.V(4).Info("Enqueuing AROControlPlane reconciliation from AROCluster watch", "requests", len(requests))
+	return requests
 }
 
 // hcpClusterToAROControlPlane maps ASO HcpOpenShiftCluster changes to the owning AROControlPlane.
@@ -173,6 +215,54 @@ func (r *AROControlPlaneReconciler) hcpClusterToAROControlPlane(_ context.Contex
 	return nil
 }
 
+// nodePoolToAROControlPlane maps ASO HcpOpenShiftClustersNodePool changes to the owning AROControlPlane.
+// The ownership chain is: NodePool -> AROMachinePool -> Cluster -> AROControlPlane
+func (r *AROControlPlaneReconciler) nodePoolToAROControlPlane(ctx context.Context, o client.Object) []ctrl.Request {
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROControlPlaneReconciler.nodePoolToAROControlPlane")
+	defer done()
+
+	nodePool := o.(*asoredhatopenshiftv1.HcpOpenShiftClustersNodePool)
+	log.V(4).Info("NodePool watch triggered", "nodePool", nodePool.Name, "namespace", nodePool.Namespace)
+
+	// Find the owning AROMachinePool from owner references
+	var aroMachinePoolName string
+	for _, ref := range nodePool.OwnerReferences {
+		if ref.APIVersion == infrav2exp.GroupVersion.Identifier() && ref.Kind == "AROMachinePool" {
+			aroMachinePoolName = ref.Name
+			break
+		}
+	}
+
+	if aroMachinePoolName == "" {
+		log.V(4).Info("NodePool has no AROMachinePool owner, skipping", "nodePool", nodePool.Name)
+		return nil
+	}
+
+	// Get the AROMachinePool
+	aroMachinePool := &infrav2exp.AROMachinePool{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: aroMachinePoolName}, aroMachinePool); err != nil {
+		log.V(4).Info("Failed to get AROMachinePool, skipping", "aroMachinePool", aroMachinePoolName, "error", err)
+		return nil
+	}
+
+	// Get cluster from AROMachinePool label
+	clusterName := aroMachinePool.Labels[clusterv1.ClusterNameLabel]
+	if clusterName == "" {
+		log.V(4).Info("AROMachinePool has no cluster label, skipping", "aroMachinePool", aroMachinePoolName)
+		return nil
+	}
+
+	cluster, err := util.GetClusterByName(ctx, r.Client, aroMachinePool.Namespace, clusterName)
+	if client.IgnoreNotFound(err) != nil || cluster == nil {
+		log.V(4).Info("Could not get owner cluster, skipping", "clusterName", clusterName, "error", err)
+		return nil
+	}
+
+	requests := clusterToAROControlPlane(ctx, cluster)
+	log.V(4).Info("Enqueuing AROControlPlane reconciliation from NodePool watch", "requests", len(requests))
+	return requests
+}
+
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/finalizers,verbs=update
@@ -180,6 +270,8 @@ func (r *AROControlPlaneReconciler) hcpClusterToAROControlPlane(_ context.Contex
 //+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclusters/status,verbs=get;list;watch
 //+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclustersexternalauths,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclustersexternalauths/status,verbs=get;list;watch
+//+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclustersnodepools,verbs=get;list;watch
+//+kubebuilder:rbac:groups=redhatopenshift.azure.com,resources=hcpopenshiftclustersnodepools/status,verbs=get;list;watch
 
 // Reconcile will reconcile AROControlPlane resources.
 func (r *AROControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, resultErr error) {
@@ -294,7 +386,9 @@ func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, scope *
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	if aroControlPlane.Spec.AroClusterName == "" {
+	// AroClusterName is only required in field-based mode
+	// In resources mode, the HcpOpenShiftCluster is defined directly in spec.resources
+	if len(aroControlPlane.Spec.Resources) == 0 && aroControlPlane.Spec.AroClusterName == "" {
 		return ctrl.Result{}, reconcile.TerminalError(ErrNoAROClusterDefined)
 	}
 
@@ -323,12 +417,49 @@ func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, scope *
 		return reconcile.Result{}, errors.Wrapf(err, "error creating AROControlPlane %s/%s", scope.ControlPlane.Namespace, scope.ControlPlane.Name)
 	}
 
-	// No errors, so mark us ready so the Cluster API Cluster Controller can pull it
-	scope.ControlPlane.Status.Ready = (aroControlPlane.Status.APIURL != "")
 	// Always initialize the Initialization status if not set
 	if scope.ControlPlane.Status.Initialization == nil {
 		scope.ControlPlane.Status.Initialization = &cplane.AROControlPlaneInitializationStatus{}
 	}
+
+	// Check HcpClusterReady condition - this is the authoritative source for HCP cluster readiness
+	hcpClusterReady := false
+	for _, condition := range aroControlPlane.Status.Conditions {
+		if condition.Type == string(cplane.HcpClusterReadyCondition) && condition.Status == metav1.ConditionTrue {
+			hcpClusterReady = true
+			break
+		}
+	}
+
+	// Check if the kubeconfig secret exists
+	kubeconfigSecret := scope.MakeEmptyKubeConfigSecret()
+	err = r.Client.Get(ctx, client.ObjectKey{
+		Namespace: scope.Namespace(),
+		Name:      secret.Name(scope.Cluster.Name, secret.Kubeconfig),
+	}, &kubeconfigSecret)
+	kubeconfigExists := (err == nil)
+
+	if err != nil && client.IgnoreNotFound(err) != nil {
+		// Unexpected error checking secret
+		log.Error(err, "Failed to check kubeconfig secret existence")
+	}
+
+	// Control plane is Ready when BOTH HcpClusterReady AND kubeconfig exists
+	// This is the proper dependency: HcpCluster must be ready and kubeconfig must exist
+	scope.ControlPlane.Status.Ready = hcpClusterReady && kubeconfigExists
+
+	if scope.ControlPlane.Status.Ready {
+		log.Info("Control plane is ready (HCP cluster ready and kubeconfig available)")
+	} else if hcpClusterReady && !kubeconfigExists {
+		log.Info("HCP cluster is ready but waiting for kubeconfig secret to be created by ASO")
+	} else if !hcpClusterReady && kubeconfigExists {
+		log.V(4).Info("Kubeconfig exists but waiting for HCP cluster to be ready")
+	} else {
+		log.V(4).Info("Waiting for HCP cluster to be ready and kubeconfig secret to be created")
+	}
+
+	// ControlPlaneInitialized follows Status.Ready
+	// When Ready=true, the control plane is fully usable
 	scope.ControlPlane.Status.Initialization.ControlPlaneInitialized = scope.ControlPlane.Status.Ready
 
 	return ctrl.Result{}, nil

@@ -96,8 +96,9 @@ spec:
                 - message: nodepoolName is immutable
                   rule: self == oldSelf
               platform:
-                description: AROPlatformProfileMachinePool represents the NodePool
-                  Azure platform configuration.
+                description: |-
+                  AROPlatformProfileMachinePool represents the NodePool Azure platform configuration.
+                  Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
                 properties:
                   availabilityZone:
                     description: AvailabilityZone specifying the availability zone
@@ -132,6 +133,15 @@ spec:
                 items:
                   type: string
                 type: array
+              resources:
+                description: |-
+                  Resources are embedded ASO resources to be managed by this AROMachinePool.
+                  When specified, this takes precedence over the field-based configuration (Platform, Version, etc.).
+                  This allows you to define the HcpOpenShiftNodePool resource directly using ASO types.
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                type: array
               taints:
                 description: Taints specifies the taints to apply to the nodes of
                   the machine pool
@@ -163,6 +173,7 @@ spec:
                 description: |-
                   Version specifies the OpenShift version of the nodes associated with this machinepool.
                   AROMachinePool version is used if not set.
+                  Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
                 type: string
             required:
             - nodePoolName
@@ -310,6 +321,37 @@ spec:
                 description: Replicas is the most recently observed number of replicas.
                 format: int32
                 type: integer
+              resources:
+                description: |-
+                  Resources represents the status of ASO resources managed by this AROMachinePool.
+                  This is populated when using the Resources field in the spec.
+                items:
+                  description: ResourceStatus represents the status of a resource.
+                  properties:
+                    ready:
+                      type: boolean
+                    resource:
+                      description: StatusResource is a handle to a resource.
+                      properties:
+                        group:
+                          type: string
+                        kind:
+                          type: string
+                        name:
+                          type: string
+                        version:
+                          type: string
+                      required:
+                      - group
+                      - kind
+                      - name
+                      - version
+                      type: object
+                  required:
+                  - ready
+                  - resource
+                  type: object
+                type: array
               version:
                 description: ARO-HCP OpenShift version X.Y (without Z-stream), for
                   example "4.20".

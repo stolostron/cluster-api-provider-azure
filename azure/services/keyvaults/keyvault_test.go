@@ -201,6 +201,7 @@ func TestEnsureETCDEncryptionKey(t *testing.T) {
 			expectedError: "",
 			expect: func(s *mock_keyvault.MockKeyVaultScopeMockRecorder, c *mock_keyvault.MockClientMockRecorder) {
 				s.GetKeyVaultResourceID().Return("/subscriptions/test-sub/resourceGroups/test-rg/providers/Microsoft.KeyVault/vaults/test-keyvault")
+				s.GetClient().Return(nil) // No k8s client, vault assumed ready
 				s.ResourceGroup().Return("test-rg")
 				c.GetKey(gomockinternal.AContext(), "test-rg", "test-keyvault", ETCDEncryptionKeyName).Return(fakeKey, nil)
 				s.SetVaultInfo(ptr.To("test-keyvault"), ptr.To(ETCDEncryptionKeyName), ptr.To("test-version"))
@@ -211,6 +212,7 @@ func TestEnsureETCDEncryptionKey(t *testing.T) {
 			expectedError: "",
 			expect: func(s *mock_keyvault.MockKeyVaultScopeMockRecorder, c *mock_keyvault.MockClientMockRecorder) {
 				s.GetKeyVaultResourceID().Return("/subscriptions/test-sub/resourceGroups/test-rg/providers/Microsoft.KeyVault/vaults/test-keyvault")
+				s.GetClient().Return(nil)                    // No k8s client, vault assumed ready
 				s.ResourceGroup().Return("test-rg").Times(2) // Called by both getLatestKeyVersion and createKey
 				c.GetKey(gomockinternal.AContext(), "test-rg", "test-keyvault", ETCDEncryptionKeyName).Return(nil, newNotFoundError())
 				c.CreateKey(gomockinternal.AContext(), "test-rg", "test-keyvault", ETCDEncryptionKeyName, gomock.Any()).Return(fakeKey, nil)
@@ -222,6 +224,7 @@ func TestEnsureETCDEncryptionKey(t *testing.T) {
 			expectedError: "failed to ensure etcd encryption key exists: failed to check key existence: failed to get key etcd-data-kms-encryption-key from vault test-keyvault:",
 			expect: func(s *mock_keyvault.MockKeyVaultScopeMockRecorder, c *mock_keyvault.MockClientMockRecorder) {
 				s.GetKeyVaultResourceID().Return("/subscriptions/test-sub/resourceGroups/test-rg/providers/Microsoft.KeyVault/vaults/test-keyvault")
+				s.GetClient().Return(nil) // No k8s client, vault assumed ready
 				s.ResourceGroup().Return("test-rg")
 				c.GetKey(gomockinternal.AContext(), "test-rg", "test-keyvault", ETCDEncryptionKeyName).Return(nil, newInternalError())
 			},
@@ -231,6 +234,7 @@ func TestEnsureETCDEncryptionKey(t *testing.T) {
 			expectedError: "failed to ensure etcd encryption key exists: failed to create key etcd-data-kms-encryption-key in vault test-keyvault:",
 			expect: func(s *mock_keyvault.MockKeyVaultScopeMockRecorder, c *mock_keyvault.MockClientMockRecorder) {
 				s.GetKeyVaultResourceID().Return("/subscriptions/test-sub/resourceGroups/test-rg/providers/Microsoft.KeyVault/vaults/test-keyvault")
+				s.GetClient().Return(nil)                    // No k8s client, vault assumed ready
 				s.ResourceGroup().Return("test-rg").Times(2) // Called by both getLatestKeyVersion and createKey
 				c.GetKey(gomockinternal.AContext(), "test-rg", "test-keyvault", ETCDEncryptionKeyName).Return(nil, newNotFoundError())
 				c.CreateKey(gomockinternal.AContext(), "test-rg", "test-keyvault", ETCDEncryptionKeyName, gomock.Any()).Return(nil, newInternalError())

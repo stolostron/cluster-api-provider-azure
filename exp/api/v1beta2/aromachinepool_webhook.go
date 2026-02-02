@@ -18,6 +18,7 @@ package v1beta2
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"unicode"
@@ -93,23 +94,33 @@ func (mw *aroMachinePoolWebhook) ValidateCreate(_ context.Context, obj runtime.O
 func (m *AROMachinePool) Validate(_ client.Client) error {
 	var errs []error
 
-	errs = append(errs, validateOCPVersion(
-		m.Spec.Version,
-		field.NewPath("spec").Child("version")))
+	// Validate resources if specified
+	if resourcesErr := m.validateResources(); resourcesErr != nil {
+		errs = append(errs, resourcesErr)
+	}
 
+	// Only validate legacy fields if not using resources mode
+	if len(m.Spec.Resources) == 0 {
+		errs = append(errs, validateOCPVersion(
+			m.Spec.Version,
+			field.NewPath("spec").Child("version")))
+
+		if m.Spec.Autoscaling != nil {
+			errs = append(errs, validateMinReplicas(
+				&m.Spec.Autoscaling.MinReplicas,
+				field.NewPath("spec", "autoscaling", "minReplicas")))
+
+			errs = append(errs, validateMaxReplicas(
+				&m.Spec.Autoscaling.MaxReplicas, &m.Spec.Autoscaling.MinReplicas,
+				field.NewPath("spec", "autoscaling", "maxReplicas")))
+		}
+	}
+
+	// Always validate node pool name
 	errs = append(errs, validateNodePoolName(
 		m.Spec.NodePoolName,
 		field.NewPath("spec").Child("nodePoolName")))
 
-	if m.Spec.Autoscaling != nil {
-		errs = append(errs, validateMinReplicas(
-			&m.Spec.Autoscaling.MinReplicas,
-			field.NewPath("spec", "autoscaling", "minReplicas")))
-
-		errs = append(errs, validateMaxReplicas(
-			&m.Spec.Autoscaling.MaxReplicas, &m.Spec.Autoscaling.MinReplicas,
-			field.NewPath("spec", "autoscaling", "maxReplicas")))
-	}
 	return kerrors.NewAggregate(errs)
 }
 
@@ -445,4 +456,58 @@ func validateNodePoolName(name string, fldPath *field.Path) error {
 	}
 
 	return nil
+}
+
+// validateResources validates the resources field configuration.
+func (m *AROMachinePool) validateResources() error {
+	if len(m.Spec.Resources) == 0 {
+		return nil // Resources is optional
+	}
+
+	basePath := field.NewPath("spec", "resources")
+	var allErrs field.ErrorList
+
+	// Validate that each resource can be unmarshaled
+	for i := range m.Spec.Resources {
+		resourcePath := basePath.Index(i)
+		raw := &m.Spec.Resources[i]
+
+		if raw.Raw == nil {
+			allErrs = append(allErrs, field.Required(resourcePath, "resource cannot be empty"))
+			continue
+		}
+
+		// Basic validation: check that it's valid JSON
+		var obj map[string]interface{}
+		if err := json.Unmarshal(raw.Raw, &obj); err != nil {
+			allErrs = append(allErrs, field.Invalid(resourcePath, string(raw.Raw), fmt.Sprintf("resource must be valid JSON: %v", err)))
+			continue
+		}
+
+		// Validate that required fields exist
+		apiVersion, ok := obj["apiVersion"].(string)
+		if !ok || apiVersion == "" {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("apiVersion"), "resource must have apiVersion"))
+		}
+
+		kind, ok := obj["kind"].(string)
+		if !ok || kind == "" {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("kind"), "resource must have kind"))
+		}
+
+		// Check if metadata exists
+		metadata, ok := obj["metadata"].(map[string]interface{})
+		if !ok {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("metadata"), "resource must have metadata"))
+			continue
+		}
+
+		// Validate name exists in metadata
+		name, ok := metadata["name"].(string)
+		if !ok || name == "" {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("metadata", "name"), "resource must have metadata.name"))
+		}
+	}
+
+	return allErrs.ToAggregate()
 }

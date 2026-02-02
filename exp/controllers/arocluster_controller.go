@@ -26,8 +26,10 @@ import (
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -47,6 +49,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/controllers"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infra "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-azure/pkg/mutators"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
@@ -56,6 +59,8 @@ var errInvalidControlPlaneKind = errors.New("AROCluster cannot be used without A
 type AROClusterReconciler struct {
 	client.Client
 	WatchFilterValue string
+
+	newResourceReconciler func(*infra.AROCluster, []*unstructured.Unstructured) *controllers.ResourceReconciler
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -66,7 +71,7 @@ func (r *AROClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 	)
 	defer done()
 
-	_, err := ctrl.NewControllerManagedBy(mgr).
+	c, err := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(options).
 		For(&infra.AROCluster{}).
 		WithEventFilter(predicates.ResourceHasFilterLabel(mgr.GetScheme(), log, r.WatchFilterValue)).
@@ -104,6 +109,17 @@ func (r *AROClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 		Build(r)
 	if err != nil {
 		return err
+	}
+
+	externalTracker := &external.ObjectTracker{
+		Cache:           mgr.GetCache(),
+		Controller:      c,
+		Scheme:          mgr.GetScheme(),
+		PredicateLogger: &log,
+	}
+
+	r.newResourceReconciler = func(aroCluster *infra.AROCluster, resources []*unstructured.Unstructured) *controllers.ResourceReconciler {
+		return controllers.NewResourceReconciler(r.Client, resources, aroCluster, controllers.WithWatcher(externalTracker))
 	}
 
 	return nil
@@ -240,6 +256,50 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	// Reconcile ASO resources if specified
+	if len(aroCluster.Spec.Resources) > 0 {
+		resources, err := mutators.ToUnstructured(ctx, aroCluster.Spec.Resources)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to convert resources to unstructured: %w", err)
+		}
+		resourceReconciler := r.newResourceReconciler(aroCluster, resources)
+		err = resourceReconciler.Reconcile(ctx)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to reconcile resources: %w", err)
+		}
+
+		// Update infrastructure ready condition based on resource status
+		totalResources := len(aroCluster.Status.Resources)
+		readyResources := 0
+		var notReadyResources []string
+		for _, status := range aroCluster.Status.Resources {
+			if status.Ready {
+				readyResources++
+			} else {
+				notReadyResources = append(notReadyResources, fmt.Sprintf("%s/%s", status.Resource.Kind, status.Resource.Name))
+			}
+		}
+
+		if readyResources == totalResources && totalResources > 0 {
+			conditions.Set(aroCluster, metav1.Condition{
+				Type:    string(infra.ResourcesReadyCondition),
+				Status:  metav1.ConditionTrue,
+				Reason:  "InfrastructureReady",
+				Message: fmt.Sprintf("All %d infrastructure resources are ready", totalResources),
+			})
+			log.V(4).Info("all resources are ready", "total", totalResources)
+		} else {
+			conditions.Set(aroCluster, metav1.Condition{
+				Type:    string(infra.ResourcesReadyCondition),
+				Status:  metav1.ConditionFalse,
+				Reason:  "ProvisioningInfrastructure",
+				Message: fmt.Sprintf("Waiting for infrastructure resources: %d/%d ready", readyResources, totalResources),
+			})
+			log.V(4).Info("waiting for resources to be ready", "ready", readyResources, "total", totalResources, "notReady", notReadyResources)
+			return ctrl.Result{}, nil
+		}
+	}
+
 	aroControlPlane := &cplane.AROControlPlane{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: cluster.Namespace,
@@ -256,20 +316,44 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 		return ctrl.Result{}, fmt.Errorf("failed to get enpoint for url %s from AROControlPlane %s/%s: %w", aroControlPlane.Status.APIURL, aroControlPlane.Namespace, aroControlPlane.Name, err)
 	}
 
+	// For ARO HCP, infrastructure is provisioned when ResourcesReady is true
+	// The control plane is externally managed and comes up separately
+	resourcesReady := false
+	for _, condition := range aroCluster.Status.Conditions {
+		if condition.Type == string(infra.ResourcesReadyCondition) && condition.Status == metav1.ConditionTrue {
+			resourcesReady = true
+			break
+		}
+	}
+
 	// Set the values from the managed control plane
 	aroCluster.Spec.ControlPlaneEndpoint = endpoint
+
+	// AROCluster.Status.Ready depends on AROControlPlane.Status.Ready
+	// AROControlPlane already checks HcpClusterReady + kubeconfig, so we just use its Ready status
 	aroCluster.Status.Ready = aroControlPlane.Status.Ready && !aroCluster.Spec.ControlPlaneEndpoint.IsZero()
-	if aroCluster.Status.Ready {
+
+	// Initialization.Provisioned follows Status.Ready to create proper dependency chain:
+	// ResourcesReady → AROControlPlane.Ready → AROCluster.Ready → Initialization.Provisioned
+	// This ensures CAPI's InfrastructureProvisioned only becomes true when everything is actually ready
+	if resourcesReady && aroCluster.Status.Ready {
 		aroCluster.Status.Initialization = &infra.AROClusterInitializationStatus{Provisioned: true}
+		log.V(4).Info("Infrastructure marked as provisioned (resources and control plane ready)")
+	} else if aroCluster.Status.Initialization == nil {
+		aroCluster.Status.Initialization = &infra.AROClusterInitializationStatus{Provisioned: false}
+	} else {
+		// If control plane not ready, ensure provisioned stays false
+		if !aroCluster.Status.Ready {
+			aroCluster.Status.Initialization.Provisioned = false
+		}
+	}
+	if aroCluster.Status.Ready {
 		conditions.Set(aroCluster, metav1.Condition{
 			Type:   string(infrav1.NetworkInfrastructureReadyCondition),
 			Status: metav1.ConditionTrue,
 			Reason: "Succeeded",
 		})
 	} else {
-		if aroCluster.Status.Initialization == nil {
-			aroCluster.Status.Initialization = &infra.AROClusterInitializationStatus{Provisioned: false}
-		}
 		if !aroCluster.Spec.ControlPlaneEndpoint.IsZero() {
 			conditions.Set(aroCluster, metav1.Condition{
 				Type:    string(infrav1.NetworkInfrastructureReadyCondition),
@@ -293,9 +377,22 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 }
 
 func (r *AROClusterReconciler) reconcilePaused(ctx context.Context, aroCluster *infra.AROCluster) (ctrl.Result, error) {
-	_, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROClusterReconciler.reconcilePaused")
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROClusterReconciler.reconcilePaused")
 	defer done()
 	log.V(4).Info("reconciling pause")
+
+	// Pause ASO resources if specified
+	if len(aroCluster.Spec.Resources) > 0 {
+		resources, err := mutators.ToUnstructured(ctx, aroCluster.Spec.Resources)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to convert resources to unstructured: %w", err)
+		}
+		resourceReconciler := r.newResourceReconciler(aroCluster, resources)
+		err = resourceReconciler.Pause(ctx)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to pause resources: %w", err)
+		}
+	}
 
 	controllers.RemoveBlockMoveAnnotation(aroCluster)
 
@@ -303,11 +400,26 @@ func (r *AROClusterReconciler) reconcilePaused(ctx context.Context, aroCluster *
 }
 
 func (r *AROClusterReconciler) reconcileDelete(ctx context.Context, aroCluster *infra.AROCluster) (ctrl.Result, error) {
-	_, log, done := tele.StartSpanWithLogger(ctx,
+	ctx, log, done := tele.StartSpanWithLogger(ctx,
 		"controllers.AROClusterReconciler.reconcileDelete",
 	)
 	defer done()
 	log.V(4).Info("reconciling delete")
+
+	// Delete ASO resources if specified
+	if len(aroCluster.Spec.Resources) > 0 {
+		resourceReconciler := r.newResourceReconciler(aroCluster, nil)
+		err := resourceReconciler.Delete(ctx)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to delete resources: %w", err)
+		}
+
+		// Wait for all resources to be deleted before removing finalizer
+		if len(aroCluster.Status.Resources) > 0 {
+			log.V(4).Info("waiting for resources to be deleted", "remainingResources", len(aroCluster.Status.Resources))
+			return ctrl.Result{}, nil
+		}
+	}
 
 	controllerutil.RemoveFinalizer(aroCluster, infra.AROClusterFinalizer)
 	return ctrl.Result{}, nil

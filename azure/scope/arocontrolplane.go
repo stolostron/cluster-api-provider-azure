@@ -115,13 +115,21 @@ func NewAROControlPlaneScope(ctx context.Context, params AROControlPlaneScopePar
 		return nil, errors.New("failed to generate new scope from nil AROControlPlane")
 	}
 
-	credentialsProvider, err := NewAzureCredentialsProvider(ctx, params.CredentialCache, params.Client, params.ControlPlane.Spec.IdentityRef, params.ControlPlane.Namespace)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to init credentials provider")
-	}
-	err = params.AzureClients.setCredentialsWithProvider(ctx, params.ControlPlane.Spec.SubscriptionID, params.ControlPlane.Spec.AzureEnvironment, credentialsProvider)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to configure azure settings and credentials for Identity")
+	// Initialize Azure SDK credentials in the following cases:
+	// 1. Field-based mode (len(Resources) == 0): Always initialize credentials
+	// 2. Resources mode with IdentityRef set: Initialize CAPZ credentials for hybrid scenarios
+	// 3. Resources mode without IdentityRef: Skip credential initialization, ASO handles authentication
+	shouldInitCredentials := len(params.ControlPlane.Spec.Resources) == 0 || params.ControlPlane.Spec.IdentityRef != nil
+
+	if shouldInitCredentials {
+		credentialsProvider, err := NewAzureCredentialsProvider(ctx, params.CredentialCache, params.Client, params.ControlPlane.Spec.IdentityRef, params.ControlPlane.Namespace)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to init credentials provider")
+		}
+		err = params.AzureClients.setCredentialsWithProvider(ctx, params.ControlPlane.Spec.SubscriptionID, params.ControlPlane.Spec.AzureEnvironment, credentialsProvider)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to configure azure settings and credentials for Identity")
+		}
 	}
 
 	if params.Cache == nil {
@@ -743,6 +751,13 @@ func (s *AROControlPlaneScope) SetAnnotation(key, value string) {
 }
 
 func (s *AROControlPlaneScope) initNetworkSpec() {
+	// Only initialize network spec for field-based mode
+	// In resources mode, ASO manages network resources directly
+	if len(s.ControlPlane.Spec.Resources) > 0 {
+		s.NetworkSpec = &infrav1.NetworkSpec{}
+		return
+	}
+
 	s.NetworkSpec = &infrav1.NetworkSpec{
 		Vnet: infrav1.VnetSpec{
 			ResourceGroup: s.ControlPlane.Spec.Platform.ResourceGroup,
@@ -1084,6 +1099,11 @@ func (s *AROControlPlaneScope) SetVaultInfo(vaultName, keyName, keyVersion *stri
 	s.VaultName = vaultName
 	s.VaultKeyName = keyName
 	s.VaultKeyVersion = keyVersion
+}
+
+// GetVaultInfo returns the vault information from the scope.
+func (s *AROControlPlaneScope) GetVaultInfo() (vaultName, keyName, keyVersion *string) {
+	return s.VaultName, s.VaultKeyName, s.VaultKeyVersion
 }
 
 // SubscriptionID returns the subscription ID.

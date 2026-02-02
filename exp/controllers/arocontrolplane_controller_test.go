@@ -459,7 +459,7 @@ func TestAROControlPlaneReconciler_clusterToAROControlPlane(t *testing.T) {
 				},
 				Spec: clusterv1.ClusterSpec{
 					ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
-						APIGroup: infrav2exp.GroupVersion.Group,
+						APIGroup: cplane.GroupVersion.Group,
 						Kind:     cplane.AROControlPlaneKind,
 						Name:     "test-cp",
 					},
@@ -525,7 +525,7 @@ func TestAROControlPlaneReconciler_aroMachinePoolToAROControlPlane(t *testing.T)
 		},
 		Spec: clusterv1.ClusterSpec{
 			ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
-				APIGroup: infrav2exp.GroupVersion.Group,
+				APIGroup: cplane.GroupVersion.Group,
 				Kind:     cplane.AROControlPlaneKind,
 				Name:     "test-cp",
 			},

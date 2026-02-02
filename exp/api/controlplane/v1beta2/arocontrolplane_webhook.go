@@ -18,6 +18,7 @@ package v1beta2
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"reflect"
@@ -94,56 +95,59 @@ func (mw *aroControlPlaneWebhook) ValidateUpdate(_ context.Context, oldObj, newO
 		return nil, apierrors.NewBadRequest("expected an AROControlPlane")
 	}
 
-	// Based on TypeSpec models from ARO-HCP repository and service layer immutability requirements
-	// Fields without Lifecycle.Update in @visibility decorator are immutable
-	immutableFields := []struct {
-		path *field.Path
-		old  interface{}
-		new  interface{}
-	}{
-		// aroClusterName is cluster identity - always immutable
-		{field.NewPath("spec", "aroClusterName"), old.Spec.AroClusterName, m.Spec.AroClusterName},
-		// platform.networkSecurityGroupId: @visibility(Lifecycle.Read, Lifecycle.Create)
-		{field.NewPath("spec", "platform", "networkSecurityGroupID"), old.Spec.Platform.NetworkSecurityGroupID, m.Spec.Platform.NetworkSecurityGroupID},
-		// platform.subnetId: @visibility(Lifecycle.Read, Lifecycle.Create)
-		{field.NewPath("spec", "platform", "subnet"), old.Spec.Platform.Subnet, m.Spec.Platform.Subnet},
-		// platform.outboundType: @visibility(Lifecycle.Read, Lifecycle.Create)
-		{field.NewPath("spec", "platform", "outboundType"), old.Spec.Platform.OutboundType, m.Spec.Platform.OutboundType},
-		// platform.managedResourceGroup: @visibility(Lifecycle.Read, Lifecycle.Create)
-		{field.NewPath("spec", "platform", "resourceGroup"), old.Spec.Platform.ResourceGroup, m.Spec.Platform.ResourceGroup},
-		// api.visibility: @visibility(Lifecycle.Read, Lifecycle.Create)
-		{field.NewPath("spec", "visibility"), old.Spec.Visibility, m.Spec.Visibility},
-		// version.id: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable per TypeSpec
-		{field.NewPath("spec", "version"), old.Spec.Version, m.Spec.Version},
-		// TODO: location seems to be immutable too
-		{field.NewPath("spec", "platform", "location"), old.Spec.Platform.Location, m.Spec.Platform.Location},
-	}
-
-	for _, f := range immutableFields {
-		if err := webhookutils.ValidateImmutable(f.path, f.old, f.new); err != nil {
-			allErrs = append(allErrs, err)
+	// Skip legacy field validation if using resources mode
+	if len(m.Spec.Resources) == 0 && len(old.Spec.Resources) == 0 {
+		// Based on TypeSpec models from ARO-HCP repository and service layer immutability requirements
+		// Fields without Lifecycle.Update in @visibility decorator are immutable
+		immutableFields := []struct {
+			path *field.Path
+			old  interface{}
+			new  interface{}
+		}{
+			// aroClusterName is cluster identity - always immutable
+			{field.NewPath("spec", "aroClusterName"), old.Spec.AroClusterName, m.Spec.AroClusterName},
+			// platform.networkSecurityGroupId: @visibility(Lifecycle.Read, Lifecycle.Create)
+			{field.NewPath("spec", "platform", "networkSecurityGroupID"), old.Spec.Platform.NetworkSecurityGroupID, m.Spec.Platform.NetworkSecurityGroupID},
+			// platform.subnetId: @visibility(Lifecycle.Read, Lifecycle.Create)
+			{field.NewPath("spec", "platform", "subnet"), old.Spec.Platform.Subnet, m.Spec.Platform.Subnet},
+			// platform.outboundType: @visibility(Lifecycle.Read, Lifecycle.Create)
+			{field.NewPath("spec", "platform", "outboundType"), old.Spec.Platform.OutboundType, m.Spec.Platform.OutboundType},
+			// platform.managedResourceGroup: @visibility(Lifecycle.Read, Lifecycle.Create)
+			{field.NewPath("spec", "platform", "resourceGroup"), old.Spec.Platform.ResourceGroup, m.Spec.Platform.ResourceGroup},
+			// api.visibility: @visibility(Lifecycle.Read, Lifecycle.Create)
+			{field.NewPath("spec", "visibility"), old.Spec.Visibility, m.Spec.Visibility},
+			// version.id: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable per TypeSpec
+			{field.NewPath("spec", "version"), old.Spec.Version, m.Spec.Version},
+			// TODO: location seems to be immutable too
+			{field.NewPath("spec", "platform", "location"), old.Spec.Platform.Location, m.Spec.Platform.Location},
 		}
-	}
 
-	// domainPrefix (dns.baseDomainPrefix): @visibility(Lifecycle.Read, Lifecycle.Create) - immutable per TypeSpec
-	if m.Spec.DomainPrefix != "" {
-		if err := webhookutils.ValidateImmutable(
-			field.NewPath("spec", "domainPrefix"),
-			old.Spec.DomainPrefix,
-			m.Spec.DomainPrefix,
-		); err != nil {
-			allErrs = append(allErrs, err)
+		for _, f := range immutableFields {
+			if err := webhookutils.ValidateImmutable(f.path, f.old, f.new); err != nil {
+				allErrs = append(allErrs, err)
+			}
 		}
-	}
 
-	// Note: version.id is immutable per TypeSpec: @visibility(Lifecycle.Read, Lifecycle.Create)
-	// Note: channelGroup is mutable per TypeSpec: @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update)
-	// Note: platform.operatorsAuthentication has @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update)
-	// so managedIdentities are mutable and should not be validated as immutable here
+		// domainPrefix (dns.baseDomainPrefix): @visibility(Lifecycle.Read, Lifecycle.Create) - immutable per TypeSpec
+		if m.Spec.DomainPrefix != "" {
+			if err := webhookutils.ValidateImmutable(
+				field.NewPath("spec", "domainPrefix"),
+				old.Spec.DomainPrefix,
+				m.Spec.DomainPrefix,
+			); err != nil {
+				allErrs = append(allErrs, err)
+			}
+		}
 
-	// Network fields: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable per TypeSpec
-	if errs := m.validateNetworkUpdate(old); len(errs) > 0 {
-		allErrs = append(allErrs, errs...)
+		// Note: version.id is immutable per TypeSpec: @visibility(Lifecycle.Read, Lifecycle.Create)
+		// Note: channelGroup is mutable per TypeSpec: @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update)
+		// Note: platform.operatorsAuthentication has @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update)
+		// so managedIdentities are mutable and should not be validated as immutable here
+
+		// Network fields: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable per TypeSpec
+		if errs := m.validateNetworkUpdate(old); len(errs) > 0 {
+			allErrs = append(allErrs, errs...)
+		}
 	}
 
 	if len(allErrs) == 0 {
@@ -167,6 +171,7 @@ func (m *AROControlPlane) Validate(cli client.Client) error {
 		m.validateManagedIdentities,
 		m.validatePlatformFields,
 		m.validateExternalAuthProviders,
+		m.validateResources,
 	}
 	for _, validator := range validators {
 		if err := validator(cli); err != nil {
@@ -174,11 +179,19 @@ func (m *AROControlPlane) Validate(cli client.Client) error {
 		}
 	}
 
-	allErrs = append(allErrs, validateOCPVersion(
-		m.Spec.Version,
-		field.NewPath("spec").Child("version"))...)
+	// Only validate legacy fields if not using resources mode
+	if len(m.Spec.Resources) == 0 {
+		// aroClusterName is required in field-based mode
+		if m.Spec.AroClusterName == "" {
+			allErrs = append(allErrs, field.Required(field.NewPath("spec", "aroClusterName"), "aroClusterName is required when not using resources mode"))
+		}
 
-	allErrs = append(allErrs, validateNetwork(m.Spec.Network, field.NewPath("spec"))...)
+		allErrs = append(allErrs, validateOCPVersion(
+			m.Spec.Version,
+			field.NewPath("spec").Child("version"))...)
+
+		allErrs = append(allErrs, validateNetwork(m.Spec.Network, field.NewPath("spec"))...)
+	}
 
 	allErrs = append(allErrs, validateName(m.Name, field.NewPath("name"))...)
 
@@ -238,6 +251,11 @@ func validateNetwork(virtualNetwork *NetworkSpec, fldPath *field.Path) field.Err
 // validateNetworkUpdate validates update to VirtualNetwork.
 func (m *AROControlPlane) validateNetworkUpdate(old *AROControlPlane) field.ErrorList {
 	var allErrs field.ErrorList
+
+	// Skip network validation if using resources mode (Network may be nil)
+	if len(m.Spec.Resources) > 0 || len(old.Spec.Resources) > 0 {
+		return allErrs
+	}
 
 	if old.Spec.Network.MachineCIDR != m.Spec.Network.MachineCIDR {
 		allErrs = append(allErrs,
@@ -641,4 +659,62 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// validateResources validates the resources field configuration.
+func (m *AROControlPlane) validateResources(_ client.Client) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if len(m.Spec.Resources) == 0 {
+		return allErrs // Resources is optional
+	}
+
+	basePath := field.NewPath("spec", "resources")
+
+	// When using resources mode, deprecated fields are ignored
+	// The controller will ignore these fields when Resources is set
+
+	// Validate that each resource can be unmarshaled
+	for i := range m.Spec.Resources {
+		resourcePath := basePath.Index(i)
+		raw := &m.Spec.Resources[i]
+
+		if raw.Raw == nil {
+			allErrs = append(allErrs, field.Required(resourcePath, "resource cannot be empty"))
+			continue
+		}
+
+		// Basic validation: check that it's valid JSON
+		var obj map[string]interface{}
+		if err := json.Unmarshal(raw.Raw, &obj); err != nil {
+			allErrs = append(allErrs, field.Invalid(resourcePath, string(raw.Raw), fmt.Sprintf("resource must be valid JSON: %v", err)))
+			continue
+		}
+
+		// Validate that required fields exist
+		apiVersion, ok := obj["apiVersion"].(string)
+		if !ok || apiVersion == "" {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("apiVersion"), "resource must have apiVersion"))
+		}
+
+		kind, ok := obj["kind"].(string)
+		if !ok || kind == "" {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("kind"), "resource must have kind"))
+		}
+
+		// Check if metadata exists
+		metadata, ok := obj["metadata"].(map[string]interface{})
+		if !ok {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("metadata"), "resource must have metadata"))
+			continue
+		}
+
+		// Validate name exists in metadata
+		name, ok := metadata["name"].(string)
+		if !ok || name == "" {
+			allErrs = append(allErrs, field.Required(resourcePath.Child("metadata", "name"), "resource must have metadata.name"))
+		}
+	}
+
+	return allErrs
 }

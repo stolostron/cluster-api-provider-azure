@@ -19,6 +19,7 @@ package v1beta2
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
@@ -35,13 +36,22 @@ type AROMachinePoolSpec struct {
 	// +kubebuilder:validation:Pattern:=`^[a-z]([-a-z0-9]*[a-z0-9])?$`
 	NodePoolName string `json:"nodePoolName"`
 
+	// Resources are embedded ASO resources to be managed by this AROMachinePool.
+	// When specified, this takes precedence over the field-based configuration (Platform, Version, etc.).
+	// This allows you to define the HcpOpenShiftNodePool resource directly using ASO types.
+	//
+	// +optional
+	Resources []runtime.RawExtension `json:"resources,omitempty"`
+
 	// Version specifies the OpenShift version of the nodes associated with this machinepool.
 	// AROMachinePool version is used if not set.
+	// Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
 	//
 	// +optional
 	Version string `json:"version,omitempty"`
 
 	// AROPlatformProfileMachinePool represents the NodePool Azure platform configuration.
+	// Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
 	Platform AROPlatformProfileMachinePool `json:"platform,omitempty"`
 
 	// Labels specifies labels for the Kubernetes node objects
@@ -160,6 +170,11 @@ type AROMachinePoolStatus struct {
 	// ARO-HCP OpenShift version X.Y (without Z-stream), for example "4.20".
 	Version string `json:"version,omitempty"`
 
+	// Resources represents the status of ASO resources managed by this AROMachinePool.
+	// This is populated when using the Resources field in the spec.
+	// +optional
+	Resources []infrav1.ResourceStatus `json:"resources,omitempty"`
+
 	// LongRunningOperationStates saves the state for ARO long-running operations so they can be continued on the
 	// next reconciliation loop.
 	// +optional
@@ -209,6 +224,16 @@ func (c *AROMachinePool) SetFutures(futures infrav1.Futures) {
 	c.Status.LongRunningOperationStates = futures
 }
 
+// GetResourceStatuses returns the status of resources.
+func (c *AROMachinePool) GetResourceStatuses() []infrav1.ResourceStatus {
+	return c.Status.Resources
+}
+
+// SetResourceStatuses sets the status of resources.
+func (c *AROMachinePool) SetResourceStatuses(r []infrav1.ResourceStatus) {
+	c.Status.Resources = r
+}
+
 const (
 	// AROMachinePoolKind is the kind for AROMachinePool.
 	AROMachinePoolKind = "AROMachinePool"
@@ -218,6 +243,9 @@ const (
 
 	// AROMachinePoolReadyCondition condition reports on the successful reconciliation of AROMachinePool.
 	AROMachinePoolReadyCondition clusterv1.ConditionType = "AROMachinePoolReady"
+
+	// NodePoolReadyCondition condition reports on the readiness of the HcpOpenShiftClustersNodePool.
+	NodePoolReadyCondition clusterv1.ConditionType = "NodePoolReady"
 )
 
 // +kubebuilder:object:root=true

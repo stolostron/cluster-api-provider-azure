@@ -67,6 +67,7 @@ spec:
                   Cluster name must be a valid DNS-1035 label, so it must consist of lower case alphanumeric
                   characters or '-', start with an alphabetic character, end with an alphanumeric character,
                   and have a maximum length of 54 characters.
+                  Required when using field-based mode. Ignored when Resources is specified.
                 maxLength: 54
                 pattern: ^[a-z]([-a-z0-9]*[a-z0-9])?$
                 type: string
@@ -117,8 +118,9 @@ spec:
                   rule: self == oldSelf
               enableExternalAuthProviders:
                 default: false
-                description: EnableExternalAuthProviders enables external authentication
-                  configuration for the cluster.
+                description: |-
+                  EnableExternalAuthProviders enables external authentication configuration for the cluster.
+                  Deprecated: When Resources is specified, this field is ignored. Define HcpOpenShiftClustersExternalAuth in Resources instead.
                 type: boolean
                 x-kubernetes-validations:
                 - message: enableExternalAuthProviders is immutable
@@ -127,6 +129,7 @@ spec:
                 description: |-
                   ExternalAuthProviders are external OIDC identity providers that can issue tokens for this cluster.
                   Can only be set if "enableExternalAuthProviders" is set to "True".
+                  Deprecated: When Resources is specified, this field is ignored. Define HcpOpenShiftClustersExternalAuth in Resources instead.
 
                   At most one provider can be configured.
                 items:
@@ -411,7 +414,9 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               network:
-                description: Network config for the ARO HCP cluster.
+                description: |-
+                  Network config for the ARO HCP cluster.
+                  Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
                 properties:
                   hostPrefix:
                     default: 23
@@ -442,8 +447,9 @@ spec:
                     type: string
                 type: object
               platform:
-                description: AROPlatformProfileControlPlane represents the Azure platform
-                  configuration.
+                description: |-
+                  AROPlatformProfileControlPlane represents the Azure platform configuration.
+                  Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
                 properties:
                   keyVault:
                     description: Azure KeyVault id
@@ -543,6 +549,16 @@ spec:
                       namespace as the AROControlPlane and cannot be set with Subnet.
                     type: string
                 type: object
+              resources:
+                description: |-
+                  Resources are embedded ASO resources to be managed by this AROControlPlane.
+                  When specified, this takes precedence over the field-based configuration (Platform, Network, etc.).
+                  This allows you to define the full infrastructure including HcpOpenShiftCluster and
+                  HcpOpenShiftClustersExternalAuth resources directly using ASO types.
+                items:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                type: array
               subscriptionID:
                 description: SubscriptionID is the GUID of the Azure subscription
                   that owns this cluster.
@@ -564,11 +580,11 @@ spec:
                 - AlwaysAcknowledge
                 type: string
               visibility:
-                description: Visibility represents the visibility of an API endpoint.
-                  Allowed values are public and private; default is public.
+                description: |-
+                  Visibility represents the visibility of an API endpoint. Allowed values are public and private; default is public.
+                  Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
                 type: string
             required:
-            - aroClusterName
             - channelGroup
             - version
             - versionGate
@@ -715,6 +731,37 @@ spec:
                 description: Ready denotes that the AROControlPlane API Server is
                   ready to receive requests.
                 type: boolean
+              resources:
+                description: |-
+                  Resources represents the status of ASO resources managed by this AROControlPlane.
+                  This is populated when using the Resources field in the spec.
+                items:
+                  description: ResourceStatus represents the status of a resource.
+                  properties:
+                    ready:
+                      type: boolean
+                    resource:
+                      description: StatusResource is a handle to a resource.
+                      properties:
+                        group:
+                          type: string
+                        kind:
+                          type: string
+                        name:
+                          type: string
+                        version:
+                          type: string
+                      required:
+                      - group
+                      - kind
+                      - name
+                      - version
+                      type: object
+                  required:
+                  - ready
+                  - resource
+                  type: object
+                type: array
               version:
                 description: ARO-HCP OpenShift semantic version, for example "4.20.0".
                 type: string

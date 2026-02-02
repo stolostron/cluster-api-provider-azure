@@ -18,7 +18,10 @@ package v1beta2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 )
 
 // AROClusterSpec defines the desired state of AROCluster.
@@ -26,6 +29,12 @@ type AROClusterSpec struct {
 	// ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.
 	// +optional
 	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint"`
+
+	// Resources are embedded ASO resources to be managed by this AROCluster.
+	// These typically include ResourceGroup, VirtualNetwork, NetworkSecurityGroup,
+	// VirtualNetworksSubnet, Vault (Key Vault), UserAssignedIdentities, and RoleAssignments.
+	// +optional
+	Resources []runtime.RawExtension `json:"resources,omitempty"`
 }
 
 // AROClusterStatus defines the observed state of AROCluster.
@@ -45,6 +54,11 @@ type AROClusterStatus struct {
 	// NOTE: Fields in this struct are part of the Cluster API contract and are used to orchestrate initial Machine provisioning.
 	// +optional
 	Initialization *AROClusterInitializationStatus `json:"initialization,omitempty"`
+
+	// Resources represents the status of ASO resources managed by this AROCluster.
+	// This is populated when using the Resources field in the spec.
+	// +optional
+	Resources []infrav1.ResourceStatus `json:"resources,omitempty"`
 }
 
 // AROClusterInitializationStatus provides observations of the AROCluster initialization process.
@@ -87,12 +101,25 @@ func (ac *AROCluster) SetConditions(conditions []metav1.Condition) {
 	ac.Status.Conditions = conditions
 }
 
+// GetResourceStatuses returns the status of resources.
+func (ac *AROCluster) GetResourceStatuses() []infrav1.ResourceStatus {
+	return ac.Status.Resources
+}
+
+// SetResourceStatuses sets the status of resources.
+func (ac *AROCluster) SetResourceStatuses(r []infrav1.ResourceStatus) {
+	ac.Status.Resources = r
+}
+
 const (
 	// AROClusterKind is the kind for AROCluster.
 	AROClusterKind = "AROCluster"
 
 	// AROClusterFinalizer is the finalizer added to AROControlPlanes.
 	AROClusterFinalizer = "arocluster/finalizer"
+
+	// ResourcesReadyCondition means all ASO resources managed by the ARO cluster exist and are ready to be used.
+	ResourcesReadyCondition clusterv1.ConditionType = "ResourcesReady"
 )
 
 // +kubebuilder:object:root=true
