@@ -330,7 +330,7 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 	aroCluster.Spec.ControlPlaneEndpoint = endpoint
 
 	// AROCluster.Status.Ready depends on AROControlPlane.Status.Ready
-	// AROControlPlane already checks HcpClusterReady + kubeconfig, so we just use its Ready status
+	// AROControlPlane already checks BOTH HcpClusterReady + kubeconfig, so we just use its Ready status
 	aroCluster.Status.Ready = aroControlPlane.Status.Ready && !aroCluster.Spec.ControlPlaneEndpoint.IsZero()
 
 	// Initialization.Provisioned follows Status.Ready to create proper dependency chain:
@@ -341,11 +341,9 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 		log.V(4).Info("Infrastructure marked as provisioned (resources and control plane ready)")
 	} else if aroCluster.Status.Initialization == nil {
 		aroCluster.Status.Initialization = &infra.AROClusterInitializationStatus{Provisioned: false}
-	} else {
+	} else if !aroCluster.Status.Ready {
 		// If control plane not ready, ensure provisioned stays false
-		if !aroCluster.Status.Ready {
-			aroCluster.Status.Initialization.Provisioned = false
-		}
+		aroCluster.Status.Initialization.Provisioned = false
 	}
 	if aroCluster.Status.Ready {
 		conditions.Set(aroCluster, metav1.Condition{

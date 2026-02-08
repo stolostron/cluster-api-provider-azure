@@ -20,12 +20,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
-	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -47,7 +44,7 @@ var (
 )
 
 // SetAROClusterDefaults propagates values defined by Cluster API to an ARO AROCluster.
-func SetAROClusterDefaults(_ client.Client, aroControlPlane *controlv1.AROControlPlane, cluster *clusterv1beta1.Cluster) ResourcesMutator {
+func SetAROClusterDefaults(_ client.Client, _ *controlv1.AROControlPlane, cluster *clusterv1beta1.Cluster) ResourcesMutator {
 	return func(ctx context.Context, us []*unstructured.Unstructured) error {
 		ctx, _, done := tele.StartSpanWithLogger(ctx, "mutators.SetAROClusterDefaults")
 		defer done()
@@ -66,10 +63,6 @@ func SetAROClusterDefaults(_ client.Client, aroControlPlane *controlv1.AROContro
 			return reconcile.TerminalError(ErrNoAROClusterDefined)
 		}
 
-		if err := setAROClusterKubernetesVersion(ctx, aroControlPlane, aroClusterPath, aroCluster); err != nil {
-			return err
-		}
-
 		if err := setAROClusterServiceCIDR(ctx, cluster, aroClusterPath, aroCluster); err != nil {
 			return err
 		}
@@ -84,36 +77,6 @@ func SetAROClusterDefaults(_ client.Client, aroControlPlane *controlv1.AROContro
 
 		return nil
 	}
-}
-
-func setAROClusterKubernetesVersion(ctx context.Context, aroControlPlane *controlv1.AROControlPlane, aroClusterPath string, aroCluster *unstructured.Unstructured) error {
-	_, log, done := tele.StartSpanWithLogger(ctx, "mutators.setAROClusterKubernetesVersion")
-	defer done()
-
-	capzK8sVersion := strings.TrimPrefix(aroControlPlane.Spec.Version, "v")
-	if capzK8sVersion == "" {
-		// When the CAPI contract field isn't set, any value for version in the embedded ARO resource may be specified.
-		return nil
-	}
-
-	k8sVersionPath := []string{"spec", "kubernetesVersion"}
-	userK8sVersion, k8sVersionFound, err := unstructured.NestedString(aroCluster.UnstructuredContent(), k8sVersionPath...)
-	if err != nil {
-		return err
-	}
-	setK8sVersion := mutation{
-		location: aroClusterPath + "." + strings.Join(k8sVersionPath, "."),
-		val:      capzK8sVersion,
-		reason:   "because spec.version is set to " + aroControlPlane.Spec.Version,
-	}
-	if k8sVersionFound && userK8sVersion != capzK8sVersion {
-		return Incompatible{
-			mutation: setK8sVersion,
-			userVal:  userK8sVersion,
-		}
-	}
-	logMutation(log, setK8sVersion)
-	return unstructured.SetNestedField(aroCluster.UnstructuredContent(), capzK8sVersion, k8sVersionPath...)
 }
 
 func setAROClusterServiceCIDR(ctx context.Context, cluster *clusterv1beta1.Cluster, aroClusterPath string, aroCluster *unstructured.Unstructured) error {
@@ -432,110 +395,4 @@ func setExternalAuthOwner(_ context.Context, externalAuth *unstructured.Unstruct
 	}
 	logMutation(log, setOwner)
 	return unstructured.SetNestedMap(externalAuth.UnstructuredContent(), owner, "spec", "owner")
-}
-
-// PauseExternalAuthUntilNodePoolReady pauses HcpOpenShiftClustersExternalAuth resources until at least one node pool is ready.
-// This prevents ASO from attempting to create ExternalAuth before node pools exist, which results in terminal errors.
-func PauseExternalAuthUntilNodePoolReady(kubeclient client.Client, namespace string) ResourcesMutator {
-	return func(ctx context.Context, us []*unstructured.Unstructured) error {
-		ctx, log, done := tele.StartSpanWithLogger(ctx, "mutators.PauseExternalAuthUntilNodePoolReady")
-		defer done()
-
-		log.Info("PauseExternalAuthUntilNodePoolReady mutator started", "totalResources", len(us), "namespace", namespace)
-
-		// Find all HcpOpenShiftClustersExternalAuth resources
-		var externalAuthResources []*unstructured.Unstructured
-		for i, u := range us {
-			log.Info("Checking resource", "index", i, "group", u.GroupVersionKind().Group, "kind", u.GroupVersionKind().Kind)
-			if u.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
-				u.GroupVersionKind().Kind == "HcpOpenShiftClustersExternalAuth" {
-				externalAuthResources = append(externalAuthResources, us[i])
-				log.Info("Found ExternalAuth resource", "name", u.GetName())
-			}
-		}
-
-		log.Info("ExternalAuth resource search complete", "found", len(externalAuthResources))
-		if len(externalAuthResources) == 0 {
-			// No ExternalAuth resources, nothing to do
-			log.Info("No ExternalAuth resources found, skipping mutator")
-			return nil
-		}
-
-		// Check if any HcpOpenShiftClustersNodePool is ready
-		log.Info("Checking for ready node pools", "namespace", namespace)
-		nodePoolList := &asoredhatopenshiftv1.HcpOpenShiftClustersNodePoolList{}
-		if err := kubeclient.List(ctx, nodePoolList, client.InNamespace(namespace)); err != nil {
-			return fmt.Errorf("failed to list HcpOpenShiftClustersNodePool resources: %w", err)
-		}
-
-		log.Info("Found node pools", "count", len(nodePoolList.Items))
-		hasReadyNodePool := false
-		for _, nodePool := range nodePoolList.Items {
-			log.Info("Checking node pool", "name", nodePool.Name, "conditionsCount", len(nodePool.Status.Conditions))
-			for _, condition := range nodePool.Status.Conditions {
-				if condition.Type == asoconditions.ConditionTypeReady && condition.Status == metav1.ConditionTrue {
-					hasReadyNodePool = true
-					log.Info("Found ready node pool", "name", nodePool.Name)
-					break
-				}
-			}
-			if hasReadyNodePool {
-				break
-			}
-		}
-
-		log.Info("Node pool readiness check complete", "hasReadyNodePool", hasReadyNodePool)
-
-		// Apply pause annotation to all ExternalAuth resources if no node pool is ready
-		const pauseAnnotation = "reconcile.azure-service-operator.io/pause"
-		for i, externalAuth := range externalAuthResources {
-			annotations := externalAuth.GetAnnotations()
-			if annotations == nil {
-				annotations = make(map[string]string)
-			}
-
-			if hasReadyNodePool {
-				// Remove pause annotation if it exists
-				pauseExisted := false
-				if _, exists := annotations[pauseAnnotation]; exists {
-					delete(annotations, pauseAnnotation)
-					pauseExisted = true
-				}
-
-				// Always trigger immediate ASO reconciliation when node pool is ready
-				annotations["reconcile.azure-service-operator.io/requestedAt"] = time.Now().UTC().Format(time.RFC3339)
-				externalAuth.SetAnnotations(annotations)
-
-				if pauseExisted {
-					log.Info("removing pause annotation from ExternalAuth and triggering reconciliation", "resource", externalAuth.GetName())
-					logMutation(log, mutation{
-						location: fmt.Sprintf("spec.resources[%d].metadata.annotations[%s]", i, pauseAnnotation),
-						val:      "removed",
-						reason:   "because at least one HcpOpenShiftClustersNodePool is ready",
-					})
-				} else {
-					log.Info("triggering ExternalAuth reconciliation (node pool is ready)", "resource", externalAuth.GetName())
-					logMutation(log, mutation{
-						location: fmt.Sprintf("spec.resources[%d].metadata.annotations[reconcile.azure-service-operator.io/requestedAt]", i),
-						val:      "set",
-						reason:   "because at least one HcpOpenShiftClustersNodePool is ready",
-					})
-				}
-			} else {
-				// Add pause annotation
-				if annotations[pauseAnnotation] != "true" {
-					annotations[pauseAnnotation] = "true"
-					externalAuth.SetAnnotations(annotations)
-					log.Info("adding pause annotation to ExternalAuth", "resource", externalAuth.GetName())
-					logMutation(log, mutation{
-						location: fmt.Sprintf("spec.resources[%d].metadata.annotations[%s]", i, pauseAnnotation),
-						val:      "true",
-						reason:   "because no HcpOpenShiftClustersNodePool is ready yet",
-					})
-				}
-			}
-		}
-
-		return nil
-	}
 }

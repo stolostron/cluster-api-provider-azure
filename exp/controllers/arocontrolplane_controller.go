@@ -21,6 +21,7 @@ import (
 	"context"
 	errorsCore "errors"
 	"fmt"
+	"time"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	"github.com/pkg/errors"
@@ -215,8 +216,7 @@ func (r *AROControlPlaneReconciler) hcpClusterToAROControlPlane(_ context.Contex
 	return nil
 }
 
-// nodePoolToAROControlPlane maps ASO HcpOpenShiftClustersNodePool changes to the owning AROControlPlane.
-// The ownership chain is: NodePool -> AROMachinePool -> Cluster -> AROControlPlane
+// The ownership chain is: NodePool -> AROMachinePool -> Cluster -> AROControlPlane.
 func (r *AROControlPlaneReconciler) nodePoolToAROControlPlane(ctx context.Context, o client.Object) []ctrl.Request {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROControlPlaneReconciler.nodePoolToAROControlPlane")
 	defer done()
@@ -386,9 +386,8 @@ func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, scope *
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// AroClusterName is only required in field-based mode
-	// In resources mode, the HcpOpenShiftCluster is defined directly in spec.resources
-	if len(aroControlPlane.Spec.Resources) == 0 && aroControlPlane.Spec.AroClusterName == "" {
+	// Resources are required
+	if len(aroControlPlane.Spec.Resources) == 0 {
 		return ctrl.Result{}, reconcile.TerminalError(ErrNoAROClusterDefined)
 	}
 
@@ -461,6 +460,39 @@ func (r *AROControlPlaneReconciler) reconcileNormal(ctx context.Context, scope *
 	// ControlPlaneInitialized follows Status.Ready
 	// When Ready=true, the control plane is fully usable
 	scope.ControlPlane.Status.Initialization.ControlPlaneInitialized = scope.ControlPlane.Status.Ready
+
+	// Token refresh mechanism for workload identity
+	// Check if kubeconfig exists and has token expiration annotation
+	if kubeconfigExists {
+		// Check for token expiration annotation
+		if tokenExpiresAtStr, exists := kubeconfigSecret.Annotations["aro.azure.com/token-expires-at"]; exists {
+			tokenExpiresAt, err := time.Parse(time.RFC3339, tokenExpiresAtStr)
+			if err == nil {
+				timeUntilExpiration := time.Until(tokenExpiresAt)
+
+				// If token is expired or expiring soon (within 15 minutes), trigger immediate refresh
+				if timeUntilExpiration <= 15*time.Minute {
+					if timeUntilExpiration <= 0 {
+						log.Info("Kubeconfig token has expired, triggering immediate refresh")
+					} else {
+						log.Info("Kubeconfig token expiring soon, scheduling refresh", "expiresIn", timeUntilExpiration)
+					}
+					// Requeue immediately to trigger kubeconfig reconciliation
+					return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+				}
+
+				// Schedule requeue before expiration (15 minutes before)
+				// This ensures we refresh the token proactively
+				requeueAfter := timeUntilExpiration - 15*time.Minute
+				if requeueAfter > 0 && requeueAfter < 24*time.Hour {
+					log.V(4).Info("Scheduling token refresh", "requeueAfter", requeueAfter, "expiresAt", tokenExpiresAt)
+					return ctrl.Result{RequeueAfter: requeueAfter}, nil
+				}
+			} else {
+				log.V(4).Info("Failed to parse token expiration annotation", "error", err)
+			}
+		}
+	}
 
 	return ctrl.Result{}, nil
 }

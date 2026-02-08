@@ -109,6 +109,9 @@ func TestReconcileKeyVault(t *testing.T) {
 			expectedError: "",
 			expect: func(s *mock_keyvault.MockKeyVaultScopeMockRecorder, c *mock_keyvault.MockClientMockRecorder) {
 				s.KeyVaultSpecs().Return([]azure.ResourceSpecGetter{})
+				// EnsureETCDEncryptionKey is always called, even with no specs (resources mode)
+				// Return empty string to skip key creation
+				s.GetKeyVaultResourceID().Return("")
 			},
 		},
 		{

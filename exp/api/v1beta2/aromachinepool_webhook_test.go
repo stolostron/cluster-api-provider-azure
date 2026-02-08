@@ -23,32 +23,140 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 )
 
-func TestAROMAchinePoolWebhook_Default(t *testing.T) {
+func TestAROMachinePoolWebhook_Default(t *testing.T) {
+	g := NewWithT(t)
+
 	scheme := runtime.NewScheme()
 	_ = AddToScheme(scheme)
-	_ = infrav1.AddToScheme(scheme)
 
+	machinePool := &AROMachinePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pool",
+			Namespace: "default",
+		},
+		Spec: AROMachinePoolSpec{
+			Resources: []runtime.RawExtension{},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	webhook := &aroMachinePoolWebhook{Client: fakeClient}
+
+	err := webhook.Default(t.Context(), machinePool)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestAROMachinePoolWebhook_ValidateCreate(t *testing.T) {
 	testCases := []struct {
-		name                 string
-		inputNodePoolName    string
-		expectedNodePoolName string
-		description          string
+		name          string
+		machinePool   *AROMachinePool
+		expectError   bool
+		errorContains string
 	}{
 		{
-			name:                 "empty nodepoolname uses metadata name",
-			inputNodePoolName:    "",
-			expectedNodePoolName: "test-pool",
-			description:          "should use metadata name when nodepoolname is empty",
+			name: "valid with resources",
+			machinePool: &AROMachinePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pool",
+					Namespace: "default",
+				},
+				Spec: AROMachinePoolSpec{
+					Resources: []runtime.RawExtension{
+						{
+							Raw: []byte(`{"apiVersion":"redhatopenshift.azure.com/v1api20240610preview","kind":"HcpOpenShiftClustersNodePool","metadata":{"name":"test"}}`),
+						},
+					},
+				},
+			},
+			expectError: false,
 		},
 		{
-			name:                 "existing nodepoolname unchanged",
-			inputNodePoolName:    "custom-pool",
-			expectedNodePoolName: "custom-pool",
-			description:          "should leave existing nodepoolname unchanged",
+			name: "missing resources",
+			machinePool: &AROMachinePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pool",
+					Namespace: "default",
+				},
+				Spec: AROMachinePoolSpec{
+					Resources: []runtime.RawExtension{},
+				},
+			},
+			expectError:   true,
+			errorContains: "resources mode is required",
+		},
+		{
+			name: "invalid JSON in resources",
+			machinePool: &AROMachinePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pool",
+					Namespace: "default",
+				},
+				Spec: AROMachinePoolSpec{
+					Resources: []runtime.RawExtension{
+						{
+							Raw: []byte(`{invalid json`),
+						},
+					},
+				},
+			},
+			expectError:   true,
+			errorContains: "must be valid JSON",
+		},
+		{
+			name: "resource missing apiVersion",
+			machinePool: &AROMachinePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pool",
+					Namespace: "default",
+				},
+				Spec: AROMachinePoolSpec{
+					Resources: []runtime.RawExtension{
+						{
+							Raw: []byte(`{"kind":"HcpOpenShiftClustersNodePool","metadata":{"name":"test"}}`),
+						},
+					},
+				},
+			},
+			expectError:   true,
+			errorContains: "must have apiVersion",
+		},
+		{
+			name: "resource missing kind",
+			machinePool: &AROMachinePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pool",
+					Namespace: "default",
+				},
+				Spec: AROMachinePoolSpec{
+					Resources: []runtime.RawExtension{
+						{
+							Raw: []byte(`{"apiVersion":"redhatopenshift.azure.com/v1api20240610preview","metadata":{"name":"test"}}`),
+						},
+					},
+				},
+			},
+			expectError:   true,
+			errorContains: "must have kind",
+		},
+		{
+			name: "resource missing metadata.name",
+			machinePool: &AROMachinePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pool",
+					Namespace: "default",
+				},
+				Spec: AROMachinePoolSpec{
+					Resources: []runtime.RawExtension{
+						{
+							Raw: []byte(`{"apiVersion":"redhatopenshift.azure.com/v1api20240610preview","kind":"HcpOpenShiftClustersNodePool","metadata":{}}`),
+						},
+					},
+				},
+			},
+			expectError:   true,
+			errorContains: "must have metadata.name",
 		},
 	}
 
@@ -56,74 +164,123 @@ func TestAROMAchinePoolWebhook_Default(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			machinePool := &AROMachinePool{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pool",
-					Namespace: "default",
-				},
-				Spec: AROMachinePoolSpec{
-					NodePoolName: tc.inputNodePoolName,
-				},
-			}
+			scheme := runtime.NewScheme()
+			_ = AddToScheme(scheme)
 
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 			webhook := &aroMachinePoolWebhook{Client: fakeClient}
 
-			err := webhook.Default(t.Context(), machinePool)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(machinePool.Spec.NodePoolName).To(Equal(tc.expectedNodePoolName), tc.description)
+			_, err := webhook.ValidateCreate(t.Context(), tc.machinePool)
+
+			if tc.expectError {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.errorContains))
+			} else {
+				g.Expect(err).NotTo(HaveOccurred())
+			}
 		})
 	}
 }
 
-func TestValidateOCPVersionAROMachinePool(t *testing.T) {
+func TestAROMachinePoolWebhook_ValidateUpdate(t *testing.T) {
+	g := NewWithT(t)
+
+	scheme := runtime.NewScheme()
+	_ = AddToScheme(scheme)
+
+	oldPool := &AROMachinePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pool",
+			Namespace: "default",
+		},
+		Spec: AROMachinePoolSpec{
+			Resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{"apiVersion":"redhatopenshift.azure.com/v1api20240610preview","kind":"HcpOpenShiftClustersNodePool","metadata":{"name":"test"}}`),
+				},
+			},
+		},
+	}
+
+	newPool := &AROMachinePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pool",
+			Namespace: "default",
+		},
+		Spec: AROMachinePoolSpec{
+			Resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{"apiVersion":"redhatopenshift.azure.com/v1api20240610preview","kind":"HcpOpenShiftClustersNodePool","metadata":{"name":"test-updated"}}`),
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	webhook := &aroMachinePoolWebhook{Client: fakeClient}
+
+	// ASO handles field immutability, so ValidateUpdate should succeed
+	_, err := webhook.ValidateUpdate(t.Context(), oldPool, newPool)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestAROMachinePoolValidateResources(t *testing.T) {
 	testCases := []struct {
-		name        string
-		version     string
-		expectError bool
-		description string
+		name          string
+		resources     []runtime.RawExtension
+		expectError   bool
+		errorContains string
 	}{
 		{
-			name:        "valid semantic version",
-			version:     "4.14.5",
+			name:        "empty resources list",
+			resources:   []runtime.RawExtension{},
+			expectError: false, // Empty is allowed, validation happens in Validate()
+		},
+		{
+			name: "valid resource",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240610preview",
+						"kind": "HcpOpenShiftClustersNodePool",
+						"metadata": {"name": "test-pool"}
+					}`),
+				},
+			},
 			expectError: false,
-			description: "should accept valid semantic version",
 		},
 		{
-			name:        "valid semantic version with pre-release",
-			version:     "4.14.5-rc.1",
-			expectError: false,
-			description: "should accept semantic version with pre-release",
+			name: "nil Raw data",
+			resources: []runtime.RawExtension{
+				{
+					Raw: nil,
+				},
+			},
+			expectError:   true,
+			errorContains: "resource cannot be empty",
 		},
 		{
-			name:        "valid semantic version with build metadata",
-			version:     "4.14.5+build.1",
-			expectError: false,
-			description: "should accept semantic version with build metadata",
+			name: "invalid JSON",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`not valid json{`),
+				},
+			},
+			expectError:   true,
+			errorContains: "must be valid JSON",
 		},
 		{
-			name:        "invalid version format X.Y only",
-			version:     "4.14",
-			expectError: true,
-			description: "should reject X.Y format without patch version",
-		},
-		{
-			name:        "invalid version format with letters",
-			version:     "4.14.abc",
-			expectError: true,
-			description: "should reject version with letters in patch",
-		},
-		{
-			name:        "empty version",
-			version:     "",
-			expectError: true,
-			description: "should reject empty version",
-		},
-		{
-			name:        "invalid version format single number",
-			version:     "4",
-			expectError: true,
-			description: "should reject incomplete version with single number",
+			name: "missing metadata",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240610preview",
+						"kind": "HcpOpenShiftClustersNodePool"
+					}`),
+				},
+			},
+			expectError:   true,
+			errorContains: "must have metadata",
 		},
 	}
 
@@ -131,115 +288,19 @@ func TestValidateOCPVersionAROMachinePool(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			machinePool := &AROMachinePool{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pool",
-					Namespace: "default",
-				},
+			pool := &AROMachinePool{
 				Spec: AROMachinePoolSpec{
-					NodePoolName: "test-pool",
-					Version:      tc.version,
+					Resources: tc.resources,
 				},
 			}
 
-			fakeClient := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
-			err := machinePool.Validate(fakeClient)
+			err := pool.validateResources()
 
 			if tc.expectError {
-				g.Expect(err).To(HaveOccurred(), tc.description)
-				g.Expect(err.Error()).To(ContainSubstring("must be a <valid semantic version>"), "error message should match expected format")
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.errorContains))
 			} else {
-				g.Expect(err).NotTo(HaveOccurred(), tc.description)
-			}
-		})
-	}
-}
-
-func TestValidateNodePoolName(t *testing.T) {
-	testCases := []struct {
-		name         string
-		nodePoolName string
-		expectError  bool
-		description  string
-	}{
-		{
-			name:         "valid short name",
-			nodePoolName: "abc",
-			expectError:  false,
-			description:  "should accept 3 character name",
-		},
-		{
-			name:         "valid name with hyphens",
-			nodePoolName: "w-uksouth-0",
-			expectError:  false,
-			description:  "should accept name with hyphens",
-		},
-		{
-			name:         "valid max length name",
-			nodePoolName: "a123456789012bc",
-			expectError:  false,
-			description:  "should accept 15 character name",
-		},
-		{
-			name:         "too long name",
-			nodePoolName: "mveber2-int-mp-0",
-			expectError:  true,
-			description:  "should reject name longer than 15 characters",
-		},
-		{
-			name:         "too short name",
-			nodePoolName: "ab",
-			expectError:  true,
-			description:  "should reject name shorter than 3 characters",
-		},
-		{
-			name:         "starts with number",
-			nodePoolName: "0pool",
-			expectError:  true,
-			description:  "should reject name starting with number",
-		},
-		{
-			name:         "ends with hyphen",
-			nodePoolName: "pool-",
-			expectError:  true,
-			description:  "should reject name ending with hyphen",
-		},
-		{
-			name:         "empty name",
-			nodePoolName: "",
-			expectError:  true,
-			description:  "should reject empty name",
-		},
-		{
-			name:         "contains underscore",
-			nodePoolName: "pool_name",
-			expectError:  true,
-			description:  "should reject name with underscore",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			machinePool := &AROMachinePool{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pool",
-					Namespace: "default",
-				},
-				Spec: AROMachinePoolSpec{
-					NodePoolName: tc.nodePoolName,
-					Version:      "4.19.0",
-				},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
-			err := machinePool.Validate(fakeClient)
-
-			if tc.expectError {
-				g.Expect(err).To(HaveOccurred(), tc.description)
-			} else {
-				g.Expect(err).NotTo(HaveOccurred(), tc.description)
+				g.Expect(err).NotTo(HaveOccurred())
 			}
 		})
 	}

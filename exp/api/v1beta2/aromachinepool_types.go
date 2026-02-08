@@ -17,7 +17,6 @@ limitations under the License.
 package v1beta2
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -27,110 +26,11 @@ import (
 
 // AROMachinePoolSpec defines the desired state of AROMachinePool.
 type AROMachinePoolSpec struct {
-	// NodePoolName specifies the name of the nodepool in ARO.
-	// It must be a valid DNS-1035 label, so it must consist of lower case alphanumeric characters and have a maximum length of 15 characters.
-	//
-	// +immutable
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="nodepoolName is immutable"
-	// +kubebuilder:validation:MaxLength:=15
-	// +kubebuilder:validation:Pattern:=`^[a-z]([-a-z0-9]*[a-z0-9])?$`
-	NodePoolName string `json:"nodePoolName"`
-
 	// Resources are embedded ASO resources to be managed by this AROMachinePool.
-	// When specified, this takes precedence over the field-based configuration (Platform, Version, etc.).
 	// This allows you to define the HcpOpenShiftNodePool resource directly using ASO types.
 	//
-	// +optional
-	Resources []runtime.RawExtension `json:"resources,omitempty"`
-
-	// Version specifies the OpenShift version of the nodes associated with this machinepool.
-	// AROMachinePool version is used if not set.
-	// Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
-	//
-	// +optional
-	Version string `json:"version,omitempty"`
-
-	// AROPlatformProfileMachinePool represents the NodePool Azure platform configuration.
-	// Deprecated: When Resources is specified, this field is ignored. Use Resources instead.
-	Platform AROPlatformProfileMachinePool `json:"platform,omitempty"`
-
-	// Labels specifies labels for the Kubernetes node objects
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-
-	// Taints specifies the taints to apply to the nodes of the machine pool
-	// +optional
-	Taints []AROTaint `json:"taints,omitempty"`
-
-	// AdditionalTags are user-defined tags to be added on the underlying EC2 instances associated with this machine pool.
-	// +immutable
-	// +optional
-	AdditionalTags infrav1.Tags `json:"additionalTags,omitempty"`
-
-	// AutoRepair specifies whether health checks should be enabled for machines
-	// in the NodePool; default is true.
-	// +kubebuilder:default=true
-	// +optional
-	AutoRepair bool `json:"autoRepair,omitempty"`
-
-	// Autoscaling specifies auto scaling behaviour for this MachinePool.
-	// required if Replicas is not configured
-	// +optional
-	Autoscaling *AROMachinePoolAutoScaling `json:"autoscaling,omitempty"`
-
-	// providerIDList are the identification IDs of machine instances provided by the provider.
-	// This field must match the provider IDs as seen on the node objects corresponding to a machine pool's machine instances.
-	// +optional
-	ProviderIDList []string `json:"providerIDList,omitempty"`
-}
-
-// AROPlatformProfileMachinePool represents the Azure platform configuration.
-type AROPlatformProfileMachinePool struct {
-	// Azure subnet id
-	Subnet string `json:"subnet,omitempty"`
-
-	// SubnetRef is the name that is used to create the VirtualNetworksSubnet CR. The SubnetRef must be in the same namespace as the AROMachinePool and cannot be set with Subnet.
-	SubnetRef string `json:"subnetRef,omitempty"`
-
-	// VMSize sets the VM disk volume size to the node.
-	VMSize string `json:"vmSize,omitempty"`
-
-	// DiskSizeGiB sets the disk volume size for the machine pool, in Gib.
-	DiskSizeGiB int32 `json:"diskSizeGiB,omitempty"`
-
-	// DiskStorageAccountType represents supported Azure storage account types.
-	// Available values are Premium_LRS, StandardSSD_LRS and Standard_LRS.
-	DiskStorageAccountType string `json:"diskStorageAccountType,omitempty"`
-
-	// AvailabilityZone specifying the availability zone where instances of this machine pool should run.
-	AvailabilityZone string `json:"availabilityZone,omitempty"`
-}
-
-// AROTaint represents a taint to be applied to a node.
-type AROTaint struct {
-	// The taint key to be applied to a node.
-	//
-	// +kubebuilder:validation:Required
-	Key string `json:"key"`
-	// The taint value corresponding to the taint key.
-	//
-	// +kubebuilder:validation:Pattern:=`^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$`
-	// +optional
-	Value string `json:"value,omitempty"`
-	// The effect of the taint on pods that do not tolerate the taint.
-	// Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
-	//
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=NoSchedule;PreferNoSchedule;NoExecute
-	Effect corev1.TaintEffect `json:"effect"`
-}
-
-// AROMachinePoolAutoScaling specifies scaling options.
-type AROMachinePoolAutoScaling struct {
-	// +kubebuilder:validation:Minimum=1
-	MinReplicas int `json:"minReplicas,omitempty"`
-	// +kubebuilder:validation:Minimum=1
-	MaxReplicas int `json:"maxReplicas,omitempty"`
+	// Required. Must include HcpOpenShiftClustersNodePool resource.
+	Resources []runtime.RawExtension `json:"resources"`
 }
 
 // AROMachinePoolStatus defines the observed state of AROMachinePool.

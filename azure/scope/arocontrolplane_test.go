@@ -97,11 +97,10 @@ func TestNewAROControlPlaneScope(t *testing.T) {
 					Spec: cplane.AROControlPlaneSpec{
 						SubscriptionID:   "12345678-1234-1234-1234-123456789012",
 						AzureEnvironment: "AzurePublicCloud",
-						Platform: cplane.AROPlatformProfileControlPlane{
-							Location:               "eastus",
-							ResourceGroup:          "test-rg",
-							Subnet:                 "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
-							NetworkSecurityGroupID: "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/networkSecurityGroups/test-nsg",
+						Resources: []runtime.RawExtension{
+							{
+								Raw: []byte(`{"apiVersion":"redhatopenshift.azure.com/v1api20240812preview","kind":"HcpOpenShiftCluster","metadata":{"name":"test-cluster"},"spec":{"location":"eastus"}}`),
+							},
 						},
 						IdentityRef: &corev1.ObjectReference{
 							Name:      "test-identity",
@@ -350,134 +349,6 @@ func Get(conditionType clusterv1.ConditionType, conditions []metav1.Condition) *
 	return nil
 }
 
-func TestAROControlPlaneScope_NetworkSpecInitialization(t *testing.T) {
-	g := NewWithT(t)
-
-	controlPlane := &cplane.AROControlPlane{
-		Spec: cplane.AROControlPlaneSpec{
-			Platform: cplane.AROPlatformProfileControlPlane{
-				ResourceGroup:          "test-rg",
-				Subnet:                 "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
-				NetworkSecurityGroupID: "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/networkSecurityGroups/test-nsg",
-			},
-		},
-	}
-
-	scope := &AROControlPlaneScope{
-		ControlPlane: controlPlane,
-	}
-
-	scope.initNetworkSpec()
-
-	g.Expect(scope.NetworkSpec).NotTo(BeNil())
-	g.Expect(scope.NetworkSpec.Vnet.ResourceGroup).To(Equal("test-rg"))
-	g.Expect(scope.NetworkSpec.Vnet.Name).To(Equal("test-vnet"))
-	g.Expect(scope.NetworkSpec.Subnets).To(HaveLen(1))
-	g.Expect(scope.NetworkSpec.Subnets[0].Name).To(Equal("test-subnet"))
-	g.Expect(scope.NetworkSpec.Subnets[0].ID).To(Equal(controlPlane.Spec.Platform.Subnet))
-	g.Expect(scope.NetworkSpec.Subnets[0].SecurityGroup.Name).To(Equal("test-nsg"))
-}
-
-func TestAROControlPlaneScope_RegexParsing(t *testing.T) {
-	testCases := []struct {
-		name                      string
-		subnet                    string
-		networkSecurityGroupID    string
-		expectedVnetID            string
-		expectedVnetName          string
-		expectedSubnetName        string
-		expectedSecurityGroupName string
-	}{
-		{
-			name:                      "valid subnet and NSG",
-			subnet:                    "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
-			networkSecurityGroupID:    "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/networkSecurityGroups/test-nsg",
-			expectedVnetID:            "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet",
-			expectedVnetName:          "test-vnet",
-			expectedSubnetName:        "test-subnet",
-			expectedSecurityGroupName: "test-nsg",
-		},
-		{
-			name:                      "invalid subnet format",
-			subnet:                    "invalid-subnet-format",
-			networkSecurityGroupID:    "invalid-nsg-format",
-			expectedVnetID:            "",
-			expectedVnetName:          "",
-			expectedSubnetName:        "",
-			expectedSecurityGroupName: "",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			scope := &AROControlPlaneScope{
-				ControlPlane: &cplane.AROControlPlane{
-					Spec: cplane.AROControlPlaneSpec{
-						Platform: cplane.AROPlatformProfileControlPlane{
-							Subnet:                 tc.subnet,
-							NetworkSecurityGroupID: tc.networkSecurityGroupID,
-						},
-					},
-				},
-			}
-
-			vnetID := scope.vnetID()
-			vnetName := scope.vnetName()
-			subnetName := scope.subnetName()
-			securityGroupName := scope.securityGroupName()
-
-			g.Expect(vnetID).To(Equal(tc.expectedVnetID))
-			g.Expect(vnetName).To(Equal(tc.expectedVnetName))
-			g.Expect(subnetName).To(Equal(tc.expectedSubnetName))
-			g.Expect(securityGroupName).To(Equal(tc.expectedSecurityGroupName))
-		})
-	}
-}
-
-func TestAROControlPlaneScope_AdditionalTags(t *testing.T) {
-	testCases := []struct {
-		name     string
-		tags     infrav1.Tags
-		expected infrav1.Tags
-	}{
-		{
-			name:     "nil tags",
-			tags:     nil,
-			expected: infrav1.Tags{},
-		},
-		{
-			name: "with tags",
-			tags: infrav1.Tags{
-				"key1": "value1",
-				"key2": "value2",
-			},
-			expected: infrav1.Tags{
-				"key1": "value1",
-				"key2": "value2",
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			scope := &AROControlPlaneScope{
-				ControlPlane: &cplane.AROControlPlane{
-					Spec: cplane.AROControlPlaneSpec{
-						AdditionalTags: tc.tags,
-					},
-				},
-			}
-
-			result := scope.AdditionalTags()
-			g.Expect(result).To(Equal(tc.expected))
-		})
-	}
-}
-
 func TestAROControlPlaneScope_GetterMethods(t *testing.T) {
 	g := NewWithT(t)
 
@@ -490,9 +361,12 @@ func TestAROControlPlaneScope_GetterMethods(t *testing.T) {
 
 	controlPlane := &cplane.AROControlPlane{
 		Spec: cplane.AROControlPlaneSpec{
-			Platform: cplane.AROPlatformProfileControlPlane{
-				Location:      "eastus",
-				ResourceGroup: "test-rg",
+			SubscriptionID:   "12345678-1234-1234-1234-123456789012",
+			AzureEnvironment: "AzurePublicCloud",
+			Resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{"apiVersion":"redhatopenshift.azure.com/v1api20240812preview","kind":"HcpOpenShiftCluster","metadata":{"name":"test-cluster"},"spec":{"location":"eastus","properties":{"clusterProfile":{"resourceGroupId":"/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg"}}}}`),
+				},
 			},
 		},
 	}
@@ -506,8 +380,6 @@ func TestAROControlPlaneScope_GetterMethods(t *testing.T) {
 	}
 
 	g.Expect(scope.GetClient()).To(Equal(fakeClient))
-	g.Expect(scope.Location()).To(Equal("eastus"))
-	g.Expect(scope.ResourceGroup()).To(Equal("test-rg"))
 	g.Expect(scope.ClusterName()).To(Equal("test-cluster"))
 	g.Expect(scope.Namespace()).To(Equal("default"))
 }

@@ -20,28 +20,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"unicode"
 
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	clusterctlv1alpha3 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-
-	azureutil "sigs.k8s.io/cluster-api-provider-azure/util/azure"
-	webhookutils "sigs.k8s.io/cluster-api-provider-azure/util/webhook"
-)
-
-var (
-	ocpSemver               = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-0-9a-zA-Z_\.+]*)?$`)
-	validNodePublicPrefixID = regexp.MustCompile(`(?i)^/?subscriptions/[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}/resourcegroups/[^/]+/providers/microsoft\.network/publicipprefixes/[^/]+$`) //nolint:unused // used by unused functions kept for future reference
 )
 
 // SetupAROMachinePoolWebhookWithManager sets up and registers the webhook with the manager.
@@ -63,18 +52,12 @@ type aroMachinePoolWebhook struct {
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type.
 func (mw *aroMachinePoolWebhook) Default(_ context.Context, obj runtime.Object) error {
-	m, ok := obj.(*AROMachinePool)
+	_, ok := obj.(*AROMachinePool)
 	if !ok {
 		return apierrors.NewBadRequest("expected an AROMachinePool")
 	}
-	if m.Labels == nil {
-		m.Labels = make(map[string]string)
-	}
 
-	if m.Spec.NodePoolName == "" {
-		m.Spec.NodePoolName = m.Name
-	}
-
+	// No defaults to set in resources-only mode
 	return nil
 }
 
@@ -94,133 +77,31 @@ func (mw *aroMachinePoolWebhook) ValidateCreate(_ context.Context, obj runtime.O
 func (m *AROMachinePool) Validate(_ client.Client) error {
 	var errs []error
 
+	// Validate that resources mode is used
+	if len(m.Spec.Resources) == 0 {
+		errs = append(errs, field.Required(
+			field.NewPath("spec", "resources"),
+			"resources mode is required; field-based configuration is no longer supported"))
+	}
+
 	// Validate resources if specified
 	if resourcesErr := m.validateResources(); resourcesErr != nil {
 		errs = append(errs, resourcesErr)
 	}
 
-	// Only validate legacy fields if not using resources mode
-	if len(m.Spec.Resources) == 0 {
-		errs = append(errs, validateOCPVersion(
-			m.Spec.Version,
-			field.NewPath("spec").Child("version")))
-
-		if m.Spec.Autoscaling != nil {
-			errs = append(errs, validateMinReplicas(
-				&m.Spec.Autoscaling.MinReplicas,
-				field.NewPath("spec", "autoscaling", "minReplicas")))
-
-			errs = append(errs, validateMaxReplicas(
-				&m.Spec.Autoscaling.MaxReplicas, &m.Spec.Autoscaling.MinReplicas,
-				field.NewPath("spec", "autoscaling", "maxReplicas")))
-		}
-	}
-
-	// Always validate node pool name
-	errs = append(errs, validateNodePoolName(
-		m.Spec.NodePoolName,
-		field.NewPath("spec").Child("nodePoolName")))
-
 	return kerrors.NewAggregate(errs)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
-func (mw *aroMachinePoolWebhook) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	old, ok := oldObj.(*AROMachinePool)
-	if !ok {
-		return nil, apierrors.NewBadRequest("expected an AROMachinePool")
-	}
+func (mw *aroMachinePoolWebhook) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	m, ok := newObj.(*AROMachinePool)
 	if !ok {
 		return nil, apierrors.NewBadRequest("expected an AROMachinePool")
 	}
-	var allErrs field.ErrorList
 
-	// Based on TypeSpec models from ARO-HCP repository
-	// Fields without Lifecycle.Update in @visibility decorator are immutable
-
-	// NodePool name is identity - always immutable
-	if err := webhookutils.ValidateImmutable(
-		field.NewPath("spec", "nodePollName"),
-		old.Spec.NodePoolName,
-		m.Spec.NodePoolName); err != nil {
-		allErrs = append(allErrs, err)
-	}
-
-	// Labels validation (labels are mutable per TypeSpec: @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update))
-	if err := validateLabels(m.Spec.Labels, field.NewPath("spec", "labels")); err != nil {
-		allErrs = append(allErrs,
-			field.Invalid(
-				field.NewPath("spec", "labels"),
-				m.Spec.Labels,
-				err.Error()))
-	}
-
-	// platform.osDisk: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable
-	if err := webhookutils.ValidateImmutable(
-		field.NewPath("spec", "platform", "diskSizeGiB"),
-		old.Spec.Platform.DiskSizeGiB,
-		m.Spec.Platform.DiskSizeGiB); err != nil {
-		allErrs = append(allErrs, err)
-	}
-
-	if err := webhookutils.ValidateImmutable(
-		field.NewPath("spec", "platform", "diskStorageAccountType"),
-		old.Spec.Platform.DiskStorageAccountType,
-		m.Spec.Platform.DiskStorageAccountType); err != nil {
-		allErrs = append(allErrs, err)
-	}
-
-	// platform.vmSize: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable
-	if err := webhookutils.ValidateImmutable(
-		field.NewPath("spec", "platform", "VMSize"),
-		old.Spec.Platform.VMSize,
-		m.Spec.Platform.VMSize); err != nil {
-		allErrs = append(allErrs, err)
-	}
-
-	// platform.subnetId: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable
-	if err := webhookutils.ValidateImmutable(
-		field.NewPath("spec", "platform", "subnet"),
-		old.Spec.Platform.Subnet,
-		m.Spec.Platform.Subnet); err != nil && old.Spec.Platform.Subnet != "" {
-		allErrs = append(allErrs, err)
-	}
-
-	// platform.availabilityZone: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable
-	if err := webhookutils.ValidateImmutable(
-		field.NewPath("spec", "platform", "availabilityZone"),
-		old.Spec.Platform.AvailabilityZone,
-		m.Spec.Platform.AvailabilityZone); err != nil {
-		allErrs = append(allErrs, err)
-	}
-
-	// autoRepair: @visibility(Lifecycle.Read, Lifecycle.Create) - immutable
-	if err := webhookutils.ValidateImmutable(
-		field.NewPath("spec", "autoRepair"),
-		old.Spec.AutoRepair,
-		m.Spec.AutoRepair); err != nil {
-		allErrs = append(allErrs, err)
-	}
-
-	// Note: autoScaling has @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update)
-	// so it is mutable and should not be validated as immutable here
-	// Note: version has @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update)
-	// so it is mutable and should not be validated as immutable here
-	// Note: replicas has @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update)
-	// so it is mutable and should not be validated as immutable here
-	// Note: taints have @visibility(Lifecycle.Read, Lifecycle.Create, Lifecycle.Update)
-	// so they are mutable and should not be validated as immutable here
-
-	if len(allErrs) == 0 {
-		return nil, m.Validate(mw.Client)
-	}
-
-	if len(allErrs) != 0 {
-		return nil, apierrors.NewInvalid(GroupVersion.WithKind(AROMachinePoolKind).GroupKind(), m.Name, allErrs)
-	}
-
-	return nil, nil
+	// ASO handles field immutability for resources-mode
+	// Only validate the current state
+	return nil, m.Validate(mw.Client)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
@@ -285,176 +166,6 @@ func validateLastSystemNodePool(cli client.Client, labels map[string]string, nam
 	if len(ammpList.Items) <= 1 {
 		return errors.New("ARO Cluster must have at least one system pool")
 	}
-	return nil
-}
-
-func validateMaxReplicas(maxReplicas *int, minReplicas *int, fldPath *field.Path) error {
-	if maxReplicas != nil {
-		maxReplicasMin := 2
-		maxReplicasMax := 250
-		if ptr.Deref(maxReplicas, 0) < maxReplicasMin || ptr.Deref(maxReplicas, 0) > maxReplicasMax {
-			return field.Invalid(
-				fldPath,
-				maxReplicas,
-				fmt.Sprintf("MaxReplicas must be between %d and %d", maxReplicasMin, maxReplicasMax))
-		}
-		if ptr.Deref(maxReplicas, 0) < ptr.Deref(minReplicas, 0) {
-			return field.Invalid(
-				fldPath,
-				maxReplicas,
-				fmt.Sprintf("MaxReplicas must be at least the value of MinReplicas(=%d)", ptr.Deref(minReplicas, 0)))
-		}
-	}
-
-	return nil
-}
-
-func validateMinReplicas(minReplicas *int, fldPath *field.Path) error {
-	if minReplicas != nil {
-		minReplicasMin := 2
-		minReplicasMax := 250
-		if ptr.Deref(minReplicas, 0) < minReplicasMin || ptr.Deref(minReplicas, 0) > minReplicasMax {
-			return field.Invalid(
-				fldPath,
-				minReplicas,
-				fmt.Sprintf("MinReplicas must be between %d and %d", minReplicasMin, minReplicasMax))
-		}
-	}
-
-	return nil
-}
-
-//nolint:unused // kept for future use
-func validateMPName(mpName string, specName *string, fldPath *field.Path) error {
-	var name *string
-	var fieldNameMessage string
-	if specName == nil || *specName == "" {
-		name = &mpName
-		fieldNameMessage = "when spec.name is empty, metadata.name"
-	} else {
-		name = specName
-		fieldNameMessage = "spec.name"
-	}
-
-	if err := validateNameLength(name, fieldNameMessage, fldPath); err != nil {
-		return err
-	}
-	return validateNamePattern(name, fieldNameMessage, fldPath)
-}
-
-//nolint:unused // kept for future use
-func validateNameLength(name *string, fieldNameMessage string, fldPath *field.Path) error {
-	maxNameLen := 12
-	if name != nil && len(*name) > maxNameLen {
-		return field.Invalid(
-			fldPath,
-			"Linux",
-			fmt.Sprintf("For OSType Linux, %s can not be longer than %d characters.", fieldNameMessage, maxNameLen))
-	}
-	return nil
-}
-
-//nolint:unused // kept for future use
-func validateNamePattern(name *string, fieldNameMessage string, fldPath *field.Path) error {
-	if name == nil || *name == "" {
-		return nil
-	}
-
-	if !unicode.IsLower(rune((*name)[0])) {
-		return field.Invalid(
-			fldPath,
-			name,
-			fmt.Sprintf("%s must begin with a lowercase letter.", fieldNameMessage))
-	}
-
-	for _, char := range *name {
-		if !unicode.IsLower(char) && !unicode.IsNumber(char) {
-			return field.Invalid(
-				fldPath,
-				name,
-				fmt.Sprintf("%s may only contain lowercase alphanumeric characters.", fieldNameMessage))
-		}
-	}
-	return nil
-}
-
-func validateLabels(nodeLabels map[string]string, fldPath *field.Path) error {
-	for key := range nodeLabels {
-		if azureutil.IsAzureSystemNodeLabelKey(key) {
-			return field.Invalid(
-				fldPath,
-				key,
-				fmt.Sprintf("Node pool label key must not start with %s", azureutil.AzureSystemNodeLabelPrefix))
-		}
-	}
-
-	return nil
-}
-
-//nolint:unused // kept for future use
-func validateNodePublicIPPrefixID(nodePublicIPPrefixID *string, fldPath *field.Path) error {
-	if nodePublicIPPrefixID != nil && !validNodePublicPrefixID.MatchString(*nodePublicIPPrefixID) {
-		return field.Invalid(
-			fldPath,
-			nodePublicIPPrefixID,
-			fmt.Sprintf("resource ID must match %q", validNodePublicPrefixID.String()))
-	}
-	return nil
-}
-
-//nolint:unused // kept for future use
-func validateEnableNodePublicIP(enableNodePublicIP *bool, nodePublicIPPrefixID *string, fldPath *field.Path) error {
-	if (enableNodePublicIP == nil || !*enableNodePublicIP) &&
-		nodePublicIPPrefixID != nil {
-		return field.Invalid(
-			fldPath,
-			enableNodePublicIP,
-			"must be set to true when NodePublicIPPrefixID is set")
-	}
-	return nil
-}
-
-//nolint:unused // kept for future use
-func validateMPSubnetName(subnetName *string, fldPath *field.Path) error {
-	if subnetName != nil {
-		subnetRegex := "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,78}[a-zA-Z0-9]$"
-		regex := regexp.MustCompile(subnetRegex)
-		if success := regex.MatchString(ptr.Deref(subnetName, "")); !success {
-			return field.Invalid(fldPath, subnetName,
-				fmt.Sprintf("name of subnet doesn't match regex %s", subnetRegex))
-		}
-	}
-	return nil
-}
-
-// validateOCPVersion validates the Kubernetes version.
-func validateOCPVersion(version string, fldPath *field.Path) error {
-	if !ocpSemver.MatchString(version) {
-		return field.Invalid(fldPath, version, "must be a <valid semantic version>")
-	}
-	return nil
-}
-
-// validateNodePoolName validates the node pool name against Azure ARO HCP requirements.
-// Azure requires: ^[a-zA-Z][-a-zA-Z0-9]{1,13}[a-zA-Z0-9]$.
-// This means: starts with letter, 1-13 chars of letters/numbers/hyphens, ends with letter or number.
-// Total length: 3-15 characters.
-func validateNodePoolName(name string, fldPath *field.Path) error {
-	if name == "" {
-		return field.Required(fldPath, "nodePoolName must be specified")
-	}
-
-	// Check length (3-15 characters)
-	if len(name) < 3 || len(name) > 15 {
-		return field.Invalid(fldPath, name, "nodePoolName must be between 3 and 15 characters long")
-	}
-
-	// Validate against Azure pattern: ^[a-zA-Z][-a-zA-Z0-9]{1,13}[a-zA-Z0-9]$
-	nodePoolNamePattern := regexp.MustCompile(`^[a-zA-Z][-a-zA-Z0-9]{1,13}[a-zA-Z0-9]$`)
-	if !nodePoolNamePattern.MatchString(name) {
-		return field.Invalid(fldPath, name, "nodePoolName must start with a letter, contain only letters, numbers, and hyphens, and end with a letter or number (3-15 characters total)")
-	}
-
 	return nil
 }
 

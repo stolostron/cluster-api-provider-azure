@@ -84,22 +84,24 @@ func (s *Service) Reconcile(ctx context.Context) error {
 
 	// Get all KeyVault specs
 	keyVaultSpecs := s.Scope.KeyVaultSpecs()
-	if len(keyVaultSpecs) == 0 {
-		return nil
-	}
 
-	// Process each KeyVault spec
-	for _, keyVaultSpec := range keyVaultSpecs {
-		log.V(2).Info("reconciling KeyVault", "keyvault", keyVaultSpec.ResourceName())
+	// In resources mode (e.g., ARO HCP), KeyVault vault resources are managed by ASO,
+	// so KeyVaultSpecs may be empty. However, we still need to ensure encryption keys exist.
+	if len(keyVaultSpecs) > 0 {
+		// Process each KeyVault spec (field-based mode)
+		for _, keyVaultSpec := range keyVaultSpecs {
+			log.V(2).Info("reconciling KeyVault", "keyvault", keyVaultSpec.ResourceName())
 
-		// Check if KeyVault exists
-		_, err := s.client.Get(ctx, keyVaultSpec)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get KeyVault %s", keyVaultSpec.ResourceName())
+			// Check if KeyVault exists
+			_, err := s.client.Get(ctx, keyVaultSpec)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get KeyVault %s", keyVaultSpec.ResourceName())
+			}
 		}
 	}
 
-	// After Key Vault is reconciled, ensure the ETCD encryption key exists
+	// Ensure the ETCD encryption key exists (works in both field-based and resources modes)
+	// In resources mode, the vault is managed by ASO but keys must be managed via Azure SDK
 	if err := s.EnsureETCDEncryptionKey(ctx, s.Scope); err != nil {
 		return errors.Wrap(err, "failed to ensure ETCD encryption key exists")
 	}

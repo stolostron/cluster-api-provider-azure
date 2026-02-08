@@ -38,17 +38,8 @@ import (
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/groups"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclusters"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/hcpopenshiftclustersexternalauth"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/keyvaults"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/networksecuritygroups"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/roleassignmentsaso"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/subnets"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/userassignedidentities"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/vaults"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/virtualnetworks"
 	"sigs.k8s.io/cluster-api-provider-azure/controllers"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav1exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
@@ -61,6 +52,8 @@ const (
 	provisioningReason = "Provisioning"
 	// pauseValue is the value used for ASO pause annotations.
 	pauseValue = "true"
+	// hcpOpenShiftClustersExternalAuthKind is the kind name for HcpOpenShiftClustersExternalAuth resources.
+	hcpOpenShiftClustersExternalAuthKind = "HcpOpenShiftClustersExternalAuth"
 )
 
 // resourceReconciler interface for ASO resource reconciliation.
@@ -79,10 +72,8 @@ type resourceReconciler interface {
 
 // aroControlPlaneService is the reconciler called by the AROControlPlane controller.
 type aroControlPlaneService struct {
-	scope *scope.AROControlPlaneScope
-	// services is the list of services that are reconciled by this controller.
-	// The order of the services is important as it determines the order in which the services are reconciled.
-	services              []azure.ServiceReconciler
+	scope                 *scope.AROControlPlaneScope
+	keyVaultSvc           azure.ServiceReconciler
 	skuCache              *resourceskus.Cache
 	Reconcile             func(context.Context) error
 	Pause                 func(context.Context) error
@@ -101,31 +92,11 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 	if err != nil {
 		return nil, err
 	}
-	hpcOpenshiftASOSvc, err := hcpopenshiftclusters.New(scope)
-	if err != nil {
-		return nil, err
-	}
-	hpcOpenshiftExternalAuthSvc, err := hcpopenshiftclustersexternalauth.New(scope)
-	if err != nil {
-		return nil, err
-	}
 	acs := &aroControlPlaneService{
-		kubeclient: scope.Client,
-		scope:      scope,
-		services: []azure.ServiceReconciler{
-			groups.New(scope),
-			networksecuritygroups.New(scope),
-			virtualnetworks.New(scope),
-			subnets.New(scope),
-			vaults.New(scope),
-			keyVaultSvc,
-			userassignedidentities.New(scope),
-			roleassignmentsaso.New(scope),
-			hpcOpenshiftASOSvc,          // ASO-based cluster provisioning
-			hpcOpenshiftExternalAuthSvc, // ASO-based external auth configuration
-			// hpcOpenshiftSecretsSvc removed - kubeconfig now comes from ASO secret
-		},
-		skuCache: skuCache,
+		kubeclient:  scope.Client,
+		scope:       scope,
+		keyVaultSvc: keyVaultSvc,
+		skuCache:    skuCache,
 		newResourceReconciler: func(controlPlane *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
 			return controllers.NewResourceReconciler(scope.Client, resources, controlPlane)
 		},
@@ -137,93 +108,36 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 	return acs, nil
 }
 
-// Reconcile reconciles all the services in a predetermined order.
+// Reconcile reconciles the AROControlPlane using resources mode.
 func (s *aroControlPlaneService) reconcile(ctx context.Context) error {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.aroControlPlaneService.Reconcile")
 	defer done()
 
-	// Check if we're using resources mode (new approach)
-	if len(s.scope.ControlPlane.Spec.Resources) > 0 {
-		log.Info("Using resources mode for AROControlPlane reconciliation")
-		return s.reconcileResources(ctx)
-	}
-
-	// Legacy mode: use field-based services
-	log.Info("Using field-based mode for AROControlPlane reconciliation")
-	for _, service := range s.services {
-		serviceName := service.Name()
-		log.V(4).Info(fmt.Sprintf("reconcile-service: %s", serviceName))
-		if err := service.Reconcile(ctx); err != nil {
-			// Special handling for external auth to set condition
-			if serviceName == "hcpopenshiftclustersexternalauth" {
-				conditions.Set(s.scope.ControlPlane, metav1.Condition{
-					Type:    string(cplane.ExternalAuthReadyCondition),
-					Status:  metav1.ConditionFalse,
-					Reason:  "ReconciliationFailed",
-					Message: err.Error(),
-				})
-			}
-			return errors.Wrapf(err, "failed to reconcile AROControlPlane service %s", service.Name())
-		}
-
-		// Mark external auth as ready if reconciliation succeeded
-		if serviceName == "hcpopenshiftclustersexternalauth" && s.scope.ControlPlane.Spec.EnableExternalAuthProviders {
-			conditions.Set(s.scope.ControlPlane, metav1.Condition{
-				Type:   string(cplane.ExternalAuthReadyCondition),
-				Status: metav1.ConditionTrue,
-				Reason: "Succeeded",
-			})
-		}
-	}
-
-	// This ensures we always have fresh credentials and avoids cluster connectivity issues
-	if err := s.reconcileKubeconfig(ctx); err != nil {
-		return errors.Wrap(err, "failed to reconcile kubeconfig secret")
-	}
-
-	return nil
+	log.Info("Using resources mode for AROControlPlane reconciliation")
+	return s.reconcileResources(ctx)
 }
 
-// Pause pauses all components making up the cluster.
+// Pause pauses the AROControlPlane resources.
 func (s *aroControlPlaneService) pause(ctx context.Context) error {
 	ctx, _, done := tele.StartSpanWithLogger(ctx, "controllers.aroControlPlaneService.Pause")
 	defer done()
 
-	for _, service := range s.services {
-		pauser, ok := service.(azure.Pauser)
-		if !ok {
-			continue
-		}
-		if err := pauser.Pause(ctx); err != nil {
-			return errors.Wrapf(err, "failed to pause AROControlPlane service %s", service.Name())
-		}
+	resources, err := mutators.ToUnstructured(ctx, s.scope.ControlPlane.Spec.Resources)
+	if err != nil {
+		return errors.Wrap(err, "failed to convert resources to unstructured")
 	}
 
-	return nil
+	resourceReconciler := s.newResourceReconciler(s.scope.ControlPlane, resources)
+	return resourceReconciler.Pause(ctx)
 }
 
-// Delete reconciles all the services in a predetermined order.
+// Delete deletes the AROControlPlane resources.
 func (s *aroControlPlaneService) delete(ctx context.Context) error {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.aroControlPlaneService.Delete")
 	defer done()
 
-	// Check if we're using resources mode (new approach)
-	if len(s.scope.ControlPlane.Spec.Resources) > 0 {
-		log.V(4).Info("Using resources mode for AROControlPlane deletion")
-		return s.deleteResources(ctx)
-	}
-
-	// Legacy mode: delete field-based services in reverse order
-	log.V(4).Info("Using field-based mode for AROControlPlane deletion")
-	// If the resource group is not managed we need to delete resources inside the group one by one.
-	// services are deleted in reverse order from the order in which they are reconciled.
-	for i := len(s.services) - 1; i >= 0; i-- {
-		if err := s.services[i].Delete(ctx); err != nil {
-			return errors.Wrapf(err, "failed to delete AROControlPlane service %s", s.services[i].Name())
-		}
-	}
-
-	return nil
+	log.V(4).Info("Using resources mode for AROControlPlane deletion")
+	return s.deleteResources(ctx)
 }
 
 func (s *aroControlPlaneService) reconcileKubeconfig(ctx context.Context) error {
@@ -363,13 +277,6 @@ func (s *aroControlPlaneService) reconcileKubeconfig(ctx context.Context) error 
 		return errors.Wrap(err, "failed to update kubeconfig secret")
 	}
 
-	// Store cluster-info if we have CA data
-	if caData != nil {
-		if err := s.scope.StoreClusterInfo(ctx, caData); err != nil {
-			return errors.Wrap(err, "failed to construct cluster-info")
-		}
-	}
-
 	// TODO: Add user kubeconfig support if needed
 	// This would follow the same pattern as admin kubeconfig
 
@@ -458,9 +365,9 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 		if keyVersion != nil {
 			// Key is ready
 			conditions.Set(s.scope.ControlPlane, metav1.Condition{
-				Type:    string(cplane.EncryptionKeyReadyCondition),
-				Status:  metav1.ConditionTrue,
-				Reason:  "KeyReady",
+				Type:   string(cplane.EncryptionKeyReadyCondition),
+				Status: metav1.ConditionTrue,
+				Reason: "KeyReady",
 				Message: fmt.Sprintf("Encryption key '%s' version '%s' ready in vault '%s'",
 					ptr.Deref(keyName, ""), ptr.Deref(keyVersion, ""), ptr.Deref(vaultName, "")),
 			})
@@ -483,7 +390,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 	hasExternalAuthInSpec := false
 	for _, resource := range resources {
 		if resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
-			resource.GroupVersionKind().Kind == "HcpOpenShiftClustersExternalAuth" {
+			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
 			hasExternalAuthInSpec = true
 			break
 		}
@@ -545,7 +452,14 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 		if client.IgnoreNotFound(err) != nil {
 			return errors.Wrap(err, "failed to get HcpOpenShiftCluster")
 		}
-		// HcpOpenShiftCluster doesn't exist yet (being created), skip status extraction
+		// HcpOpenShiftCluster doesn't exist yet (being created)
+		// Set HcpClusterReadyCondition to False before returning to ensure proper state
+		conditions.Set(s.scope.ControlPlane, metav1.Condition{
+			Type:    string(cplane.HcpClusterReadyCondition),
+			Status:  metav1.ConditionFalse,
+			Reason:  "HcpOpenShiftClusterNotFound",
+			Message: fmt.Sprintf("HcpOpenShiftCluster %s does not exist yet", hcpClusterName),
+		})
 		log.V(4).Info("HcpOpenShiftCluster not found yet, skipping status extraction", "name", hcpClusterName)
 		return nil
 	}
@@ -621,7 +535,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 	hasExternalAuth := false
 	for _, resource := range resources {
 		if resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
-			resource.GroupVersionKind().Kind == "HcpOpenShiftClustersExternalAuth" {
+			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
 			hasExternalAuth = true
 			break
 		}
@@ -648,7 +562,7 @@ func (s *aroControlPlaneService) setExternalAuthCondition(ctx context.Context, r
 	var externalAuthName string
 	for _, resource := range resources {
 		if resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
-			resource.GroupVersionKind().Kind == "HcpOpenShiftClustersExternalAuth" {
+			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
 			externalAuthName = resource.GetName()
 			break
 		}
@@ -666,8 +580,24 @@ func (s *aroControlPlaneService) setExternalAuthCondition(ctx context.Context, r
 		Name:      externalAuthName,
 	}, externalAuth); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "failed to get HcpOpenShiftClustersExternalAuth")
+			// Unexpected error getting the resource
+			log.Error(err, "failed to get HcpOpenShiftClustersExternalAuth", "name", externalAuthName)
+			conditions.Set(s.scope.ControlPlane, metav1.Condition{
+				Type:    string(cplane.ExternalAuthReadyCondition),
+				Status:  metav1.ConditionUnknown,
+				Reason:  "GetResourceFailed",
+				Message: fmt.Sprintf("Failed to get ExternalAuth resource: %v", err),
+			})
+			return
 		}
+		// Resource not found yet (still being created)
+		log.V(4).Info("ExternalAuth resource not found yet, will retry", "name", externalAuthName)
+		conditions.Set(s.scope.ControlPlane, metav1.Condition{
+			Type:    string(cplane.ExternalAuthReadyCondition),
+			Status:  metav1.ConditionFalse,
+			Reason:  "ResourceNotFound",
+			Message: fmt.Sprintf("ExternalAuth resource %s not yet created", externalAuthName),
+		})
 		return
 	}
 
@@ -758,10 +688,8 @@ func (s *aroControlPlaneService) deleteResources(ctx context.Context) error {
 }
 
 func (s *aroControlPlaneService) getService(name string) (azure.ServiceReconciler, error) {
-	for _, service := range s.services {
-		if service.Name() == name {
-			return service, nil
-		}
+	if name == "keyvault" {
+		return s.keyVaultSvc, nil
 	}
 	return nil, errors.Errorf("service %s not found", name)
 }
@@ -905,10 +833,7 @@ func (s *aroControlPlaneService) isInfrastructureReady(ctx context.Context) (boo
 	return false, nil
 }
 
-// filterExternalAuthUntilNodePoolReady filters out ExternalAuth resources if no node pool is ready.
-// This prevents ASO from attempting to create ExternalAuth before node pools exist in Azure,
-// which would cause terminal API errors that ASO won't retry.
-// Returns: filtered resources, whether ExternalAuth was filtered out, error
+// Returns: filtered resources, whether ExternalAuth was filtered out, error.
 func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx context.Context, resources []*unstructured.Unstructured) ([]*unstructured.Unstructured, bool, error) {
 	_, log, done := tele.StartSpanWithLogger(ctx, "controllers.aroControlPlaneService.filterExternalAuthUntilNodePoolReady")
 	defer done()
@@ -945,7 +870,7 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 	filteredCount := 0
 	for _, resource := range resources {
 		if resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
-			resource.GroupVersionKind().Kind == "HcpOpenShiftClustersExternalAuth" {
+			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
 			log.V(4).Info("Filtering out ExternalAuth resource (no ready node pool)", "name", resource.GetName())
 			filteredCount++
 			continue
