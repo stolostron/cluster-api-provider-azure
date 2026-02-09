@@ -22,18 +22,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/secret"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
@@ -134,52 +134,12 @@ type AROControlPlaneScope struct {
 
 	NetworkSpec *infrav1.NetworkSpec
 
-	Kubeconfig                   *string
-	KubeonfigExpirationTimestamp *time.Time
-
 	// Key Vault related fields
 	VaultName       *string
 	VaultKeyName    *string
 	VaultKeyVersion *string
 
 	azure.AsyncReconciler
-}
-
-// SetAPIURL sets the API URL for the ARO control plane.
-func (s *AROControlPlaneScope) SetAPIURL(url *string) {
-	if url != nil {
-		s.ControlPlane.Status.APIURL = *url
-	}
-}
-
-// SetConsoleURL sets the Console URL for the ARO control plane.
-func (s *AROControlPlaneScope) SetConsoleURL(url *string) {
-	if url != nil {
-		s.ControlPlane.Status.ConsoleURL = *url
-	}
-}
-
-// SetControlPlaneInitialized sets the control plane initialized status.
-// This is part of the Cluster API contract and signals that the control plane can accept requests.
-func (s *AROControlPlaneScope) SetControlPlaneInitialized(initialized bool) {
-	if s.ControlPlane.Status.Initialization == nil {
-		s.ControlPlane.Status.Initialization = &cplane.AROControlPlaneInitializationStatus{}
-	}
-	s.ControlPlane.Status.Initialization.ControlPlaneInitialized = initialized
-}
-
-// SetKubeconfig sets the kubeconfig data and expiration timestamp.
-func (s *AROControlPlaneScope) SetKubeconfig(kubeconfig *string, kubeconfigExpirationTimestamp *time.Time) {
-	s.Kubeconfig = kubeconfig
-	s.KubeonfigExpirationTimestamp = kubeconfigExpirationTimestamp
-}
-
-// GetAdminKubeconfigData returns the admin kubeconfig data as bytes.
-func (s *AROControlPlaneScope) GetAdminKubeconfigData() []byte {
-	if s.Kubeconfig == nil {
-		return nil
-	}
-	return []byte(*s.Kubeconfig)
 }
 
 // MakeEmptyKubeConfigSecret creates an empty secret object that is used for storing kubeconfig secret data.
@@ -194,38 +154,6 @@ func (s *AROControlPlaneScope) MakeEmptyKubeConfigSecret() corev1.Secret {
 			Labels: map[string]string{clusterv1.ClusterNameLabel: s.Cluster.Name},
 		},
 	}
-}
-
-// SetStatusVersion sets the version in the control plane status.
-func (s *AROControlPlaneScope) SetStatusVersion(versionID string) {
-	s.ControlPlane.Status.Version = versionID
-}
-
-// SetProvisioningState sets the provisioning state in the control plane status.
-func (s *AROControlPlaneScope) SetProvisioningState(state string) {
-	if state == "" {
-		conditions.Set(s.ControlPlane, metav1.Condition{
-			Type:    string(cplane.AROControlPlaneReadyCondition),
-			Status:  metav1.ConditionUnknown,
-			Reason:  infrav1.CreatingReason,
-			Message: "nil ProvisioningState was returned",
-		})
-		return
-	}
-	if state == ProvisioningStateSucceeded {
-		conditions.Set(s.ControlPlane, metav1.Condition{
-			Type:   string(cplane.AROControlPlaneReadyCondition),
-			Status: metav1.ConditionTrue,
-			Reason: "Succeeded",
-		})
-		return
-	}
-	conditions.Set(s.ControlPlane, metav1.Condition{
-		Type:    string(cplane.AROControlPlaneReadyCondition),
-		Status:  metav1.ConditionFalse,
-		Reason:  infrav1.CreatingReason,
-		Message: fmt.Sprintf("ProvisioningState=%s", state),
-	})
 }
 
 // SetLongRunningOperationState will set the future on the AROControlPlane status to allow the resource to continue
@@ -326,30 +254,6 @@ func (s *AROControlPlaneScope) UpdatePatchStatus(condition clusterv1beta1.Condit
 	}
 }
 
-// AnnotateKubeconfigInvalid adds annotation aro.azure.com/kubeconfig-refresh-needed: true.
-// This marks this secret as invalid.
-func (s *AROControlPlaneScope) AnnotateKubeconfigInvalid(ctx context.Context) error {
-	kubeconfigSecret := s.MakeEmptyKubeConfigSecret()
-	key := client.ObjectKeyFromObject(&kubeconfigSecret)
-	if err := s.Client.Get(ctx, key, &kubeconfigSecret); err != nil {
-		// Secret doesn't exist - there is no need to invalidate it
-		return nil //nolint:nilerr // returning nil when secret doesn't exist is intentional
-	}
-	// Update the kubeconfig secret
-	kubeConfigSecret := s.MakeEmptyKubeConfigSecret()
-	if _, err := controllerutil.CreateOrUpdate(ctx, s.Client, &kubeConfigSecret, func() error {
-		// Add annotations for tracking
-		if kubeConfigSecret.Annotations == nil {
-			kubeConfigSecret.Annotations = make(map[string]string)
-		}
-		kubeConfigSecret.Annotations["aro.azure.com/kubeconfig-refresh-needed"] = kubeconfigRefreshNeededValue
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "failed to invalidate kubeconfig secret")
-	}
-	return nil
-}
-
 // ShouldReconcileKubeconfig determines if kubeconfig needs reconciliation using metadata-based validation (Pattern 3).
 // This avoids direct cluster connections and prevents issues with stale/invalid secrets.
 func (s *AROControlPlaneScope) ShouldReconcileKubeconfig(ctx context.Context) bool {
@@ -389,13 +293,6 @@ func (s *AROControlPlaneScope) ShouldReconcileKubeconfig(ctx context.Context) bo
 			if kubeconfigAge > maxAge {
 				return true
 			}
-		}
-	}
-
-	// Check if we have token expiration information and it's expired
-	if s.KubeonfigExpirationTimestamp != nil {
-		if time.Now().After(*s.KubeonfigExpirationTimestamp) {
-			return true
 		}
 	}
 
@@ -445,27 +342,75 @@ func (s *AROControlPlaneScope) Close(ctx context.Context) error {
 }
 
 // Location returns the location for the ARO control plane.
-// In resources mode, it extracts from HcpOpenShiftCluster resource.
-func (s *AROControlPlaneScope) Location() string {
-	// Extract location from HcpOpenShiftCluster in resources
-	for _, rawResource := range s.ControlPlane.Spec.Resources {
-		var unstructuredResource unstructured.Unstructured
-		if err := json.Unmarshal(rawResource.Raw, &unstructuredResource); err != nil {
-			continue
-		}
+// It attempts to extract location from resources in the following order:
+//  1. HcpOpenShiftCluster.spec.location (primary)
+//  2. ResourceGroup.spec.location (first fallback)
+//  3. Any other Azure resource with spec.location (second fallback)
+func (s *AROControlPlaneScope) Location() (string, error) {
+	if len(s.ControlPlane.Spec.Resources) == 0 {
+		return "", errors.New("no resources defined in AROControlPlane.spec.resources")
+	}
 
-		if unstructuredResource.GroupVersionKind().Group == aroHCPGroupName &&
-			unstructuredResource.GroupVersionKind().Kind == hcpOpenShiftClusterKindName {
-			location, found, err := unstructured.NestedString(
-				unstructuredResource.UnstructuredContent(),
-				"spec", "location",
-			)
-			if err == nil && found && location != "" {
-				return location
-			}
+	// First pass: look for HcpOpenShiftCluster location (primary)
+	for _, rawResource := range s.ControlPlane.Spec.Resources {
+		if loc := s.extractLocationFromResource(rawResource, aroHCPGroupName, hcpOpenShiftClusterKindName); loc != "" {
+			return loc, nil
 		}
 	}
-	// Return empty if not found
+
+	// Second pass: look for ResourceGroup location (fallback)
+	for _, rawResource := range s.ControlPlane.Spec.Resources {
+		if loc := s.extractLocationFromResource(rawResource, "resources.azure.com", "ResourceGroup"); loc != "" {
+			ctrl.Log.Info("using location from ResourceGroup as HcpOpenShiftCluster location not found")
+			return loc, nil
+		}
+	}
+
+	// Third pass: any Azure resource with location (last resort)
+	for _, rawResource := range s.ControlPlane.Spec.Resources {
+		if loc := s.extractLocationFromAnyResource(rawResource); loc != "" {
+			ctrl.Log.Info("using location from other Azure resource as fallback")
+			return loc, nil
+		}
+	}
+
+	return "", errors.New("no location found in any resource")
+}
+
+// extractLocationFromResource extracts location from a specific resource type.
+func (s *AROControlPlaneScope) extractLocationFromResource(rawResource runtime.RawExtension, group, kind string) string {
+	var unstructuredResource unstructured.Unstructured
+	if err := json.Unmarshal(rawResource.Raw, &unstructuredResource); err != nil {
+		return ""
+	}
+
+	if unstructuredResource.GroupVersionKind().Group == group &&
+		unstructuredResource.GroupVersionKind().Kind == kind {
+		location, found, err := unstructured.NestedString(
+			unstructuredResource.UnstructuredContent(),
+			"spec", "location",
+		)
+		if err == nil && found && location != "" {
+			return location
+		}
+	}
+	return ""
+}
+
+// extractLocationFromAnyResource extracts location from any Azure resource.
+func (s *AROControlPlaneScope) extractLocationFromAnyResource(rawResource runtime.RawExtension) string {
+	var unstructuredResource unstructured.Unstructured
+	if err := json.Unmarshal(rawResource.Raw, &unstructuredResource); err != nil {
+		return ""
+	}
+
+	location, found, err := unstructured.NestedString(
+		unstructuredResource.UnstructuredContent(),
+		"spec", "location",
+	)
+	if err == nil && found && location != "" {
+		return location
+	}
 	return ""
 }
 
@@ -664,11 +609,4 @@ func (s *AROControlPlaneScope) GetVaultInfo() (vaultName, keyName, keyVersion *s
 // SubscriptionID returns the subscription ID.
 func (s *AROControlPlaneScope) SubscriptionID() string {
 	return s.ControlPlane.Spec.SubscriptionID
-}
-
-// GetResourceGroupOwnerReference returns the resource group owner reference for ASO resources.
-func (s *AROControlPlaneScope) GetResourceGroupOwnerReference() *genruntime.KnownResourceReference {
-	return &genruntime.KnownResourceReference{
-		Name: azure.GetNormalizedKubernetesName(s.ResourceGroup()),
-	}
 }

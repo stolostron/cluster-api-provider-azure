@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/secret"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -154,112 +153,6 @@ func TestNewAROControlPlaneScope(t *testing.T) {
 	}
 }
 
-func TestAROControlPlaneScope_SetAPIURL(t *testing.T) {
-	testCases := []struct {
-		name     string
-		url      *string
-		expected string
-	}{
-		{
-			name:     "set API URL",
-			url:      ptr.To("https://api.test.com"),
-			expected: "https://api.test.com",
-		},
-		{
-			name:     "nil URL",
-			url:      nil,
-			expected: "",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-			scope := &AROControlPlaneScope{
-				ControlPlane: &cplane.AROControlPlane{},
-			}
-			scope.SetAPIURL(tc.url)
-			g.Expect(scope.ControlPlane.Status.APIURL).To(Equal(tc.expected))
-		})
-	}
-}
-
-func TestAROControlPlaneScope_SetConsoleURL(t *testing.T) {
-	testCases := []struct {
-		name     string
-		url      *string
-		expected string
-	}{
-		{
-			name:     "set Console URL",
-			url:      ptr.To("https://console.test.com"),
-			expected: "https://console.test.com",
-		},
-		{
-			name:     "nil URL",
-			url:      nil,
-			expected: "",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-			scope := &AROControlPlaneScope{
-				ControlPlane: &cplane.AROControlPlane{},
-			}
-			scope.SetConsoleURL(tc.url)
-			g.Expect(scope.ControlPlane.Status.ConsoleURL).To(Equal(tc.expected))
-		})
-	}
-}
-
-func TestAROControlPlaneScope_SetKubeconfig(t *testing.T) {
-	g := NewWithT(t)
-
-	scope := &AROControlPlaneScope{}
-	kubeconfig := "fake-kubeconfig"
-	expirationTime := time.Now().Add(time.Hour)
-
-	scope.SetKubeconfig(&kubeconfig, &expirationTime)
-
-	g.Expect(scope.Kubeconfig).NotTo(BeNil())
-	g.Expect(*scope.Kubeconfig).To(Equal(kubeconfig))
-	g.Expect(scope.KubeonfigExpirationTimestamp).NotTo(BeNil())
-	g.Expect(*scope.KubeonfigExpirationTimestamp).To(Equal(expirationTime))
-}
-
-func TestAROControlPlaneScope_GetAdminKubeconfigData(t *testing.T) {
-	testCases := []struct {
-		name       string
-		kubeconfig *string
-		expected   []byte
-	}{
-		{
-			name:       "with kubeconfig",
-			kubeconfig: ptr.To("fake-kubeconfig"),
-			expected:   []byte("fake-kubeconfig"),
-		},
-		{
-			name:       "nil kubeconfig",
-			kubeconfig: nil,
-			expected:   nil,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-			scope := &AROControlPlaneScope{
-				Kubeconfig: tc.kubeconfig,
-			}
-
-			result := scope.GetAdminKubeconfigData()
-			g.Expect(result).To(Equal(tc.expected))
-		})
-	}
-}
-
 func TestAROControlPlaneScope_MakeEmptyKubeConfigSecret(t *testing.T) {
 	g := NewWithT(t)
 
@@ -288,65 +181,6 @@ func TestAROControlPlaneScope_MakeEmptyKubeConfigSecret(t *testing.T) {
 	g.Expect(result.Namespace).To(Equal(cluster.Namespace))
 	g.Expect(result.OwnerReferences).To(HaveLen(1))
 	g.Expect(result.Labels[clusterv1.ClusterNameLabel]).To(Equal(cluster.Name))
-}
-
-func TestAROControlPlaneScope_SetProvisioningState(t *testing.T) {
-	testCases := []struct {
-		name                    string
-		state                   string
-		expectedReady           bool
-		expectedConditionStatus metav1.ConditionStatus
-		expectedConditionReason string
-	}{
-		{
-			name:                    "empty state",
-			state:                   "",
-			expectedReady:           false,
-			expectedConditionStatus: metav1.ConditionUnknown,
-			expectedConditionReason: infrav1.CreatingReason,
-		},
-		{
-			name:                    "succeeded state",
-			state:                   ProvisioningStateSucceeded,
-			expectedReady:           true,
-			expectedConditionStatus: metav1.ConditionTrue,
-		},
-		{
-			name:                    "accepted state",
-			state:                   "Accepted",
-			expectedReady:           false,
-			expectedConditionStatus: metav1.ConditionFalse,
-			expectedConditionReason: infrav1.CreatingReason,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-			scope := &AROControlPlaneScope{
-				ControlPlane: &cplane.AROControlPlane{},
-			}
-
-			scope.SetProvisioningState(tc.state)
-
-			condition := Get(cplane.AROControlPlaneReadyCondition, scope.ControlPlane.GetConditions())
-			g.Expect(condition).NotTo(BeNil())
-			g.Expect(condition.Status).To(Equal(tc.expectedConditionStatus))
-
-			if tc.expectedConditionReason != "" {
-				g.Expect(condition.Reason).To(Equal(tc.expectedConditionReason))
-			}
-		})
-	}
-}
-
-func Get(conditionType clusterv1.ConditionType, conditions []metav1.Condition) *metav1.Condition {
-	for i := range conditions {
-		if conditions[i].Type == string(conditionType) {
-			return &conditions[i]
-		}
-	}
-	return nil
 }
 
 func TestAROControlPlaneScope_GetterMethods(t *testing.T) {
@@ -384,160 +218,284 @@ func TestAROControlPlaneScope_GetterMethods(t *testing.T) {
 	g.Expect(scope.Namespace()).To(Equal("default"))
 }
 
-func TestAROControlPlaneScope_SetStatusVersion(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = clusterv1.AddToScheme(scheme)
-
-	cluster := &clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "default",
-		},
-	}
-
-	testCases := []struct {
-		name            string
-		versionID       string
-		expectedVersion string
-		description     string
-	}{
-		{
-			name:            "empty version ID",
-			versionID:       "",
-			expectedVersion: "",
-			description:     "should handle empty version ID gracefully",
-		},
-		{
-			name:            "valid version ID",
-			versionID:       "4.14.5",
-			expectedVersion: "4.14.5",
-			description:     "should set version when ID is provided",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			controlPlane := &cplane.AROControlPlane{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cp",
-					Namespace: "default",
-				},
-			}
-
-			fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-			scope := &AROControlPlaneScope{
-				Client:       fakeClient,
-				Cluster:      cluster,
-				ControlPlane: controlPlane,
-			}
-
-			// Call SetStatusVersion
-			scope.SetStatusVersion(tc.versionID)
-
-			// Verify the result
-			g.Expect(scope.ControlPlane.Status.Version).To(Equal(tc.expectedVersion), tc.description)
-		})
-	}
-}
-
-func TestAROControlPlaneScope_AnnotateKubeconfigInvalid(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = clusterv1.AddToScheme(scheme)
-
-	cluster := &clusterv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cluster",
-			Namespace: "default",
-		},
-	}
-
-	controlPlane := &cplane.AROControlPlane{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-cp",
-			Namespace: "default",
-		},
-	}
-
-	testCases := []struct {
-		name           string
-		existingSecret *corev1.Secret
-		expectedError  bool
-		description    string
-	}{
-		{
-			name:           "no existing secret",
-			existingSecret: nil,
-			expectedError:  false,
-			description:    "should handle case when secret doesn't exist",
-		},
-		{
-			name: "existing secret gets annotated",
-			existingSecret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      secret.Name(cluster.Name, secret.Kubeconfig),
-					Namespace: cluster.Namespace,
-				},
-				Data: map[string][]byte{
-					secret.KubeconfigDataName: []byte("fake-kubeconfig"),
-				},
-			},
-			expectedError: false,
-			description:   "should annotate existing secret",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			var fakeClient client.Client
-			if tc.existingSecret != nil {
-				fakeClient = fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(tc.existingSecret).Build()
-			} else {
-				fakeClient = fake.NewClientBuilder().WithScheme(scheme).Build()
-			}
-
-			scope := &AROControlPlaneScope{
-				Client:       fakeClient,
-				Cluster:      cluster,
-				ControlPlane: controlPlane,
-			}
-
-			err := scope.AnnotateKubeconfigInvalid(t.Context())
-
-			if tc.expectedError {
-				g.Expect(err).To(HaveOccurred(), tc.description)
-			} else {
-				g.Expect(err).NotTo(HaveOccurred(), tc.description)
-
-				if tc.existingSecret != nil {
-					// Verify the annotation was added
-					updatedSecret := &corev1.Secret{}
-					key := client.ObjectKey{
-						Name:      secret.Name(cluster.Name, secret.Kubeconfig),
-						Namespace: cluster.Namespace,
-					}
-					err := fakeClient.Get(t.Context(), key, updatedSecret)
-					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(updatedSecret.Annotations).To(HaveKey("aro.azure.com/kubeconfig-refresh-needed"))
-					g.Expect(updatedSecret.Annotations["aro.azure.com/kubeconfig-refresh-needed"]).To(Equal("true"))
-				}
-			}
-		})
-	}
-}
-
 func TestAROControlPlaneScope_GetKubeconfigMaxAge(t *testing.T) {
 	g := NewWithT(t)
 
 	scope := &AROControlPlaneScope{}
 	maxAge := scope.GetKubeconfigMaxAge()
 	g.Expect(maxAge).To(Equal(60 * time.Minute))
+}
+
+func TestAROControlPlaneScope_Location(t *testing.T) {
+	testCases := []struct {
+		name          string
+		resources     []runtime.RawExtension
+		expectedLoc   string
+		expectError   bool
+		errorContains string
+		description   string
+	}{
+		{
+			name:          "no resources defined",
+			resources:     []runtime.RawExtension{},
+			expectError:   true,
+			errorContains: "no resources defined",
+			description:   "should return error when no resources are defined",
+		},
+		{
+			name: "location from HcpOpenShiftCluster",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {"location": "eastus"}
+					}`),
+				},
+			},
+			expectedLoc: "eastus",
+			expectError: false,
+			description: "should extract location from HcpOpenShiftCluster",
+		},
+		{
+			name: "location from ResourceGroup fallback",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {}
+					}`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "resources.azure.com/v1api20200601",
+						"kind": "ResourceGroup",
+						"metadata": {"name": "test-rg"},
+						"spec": {"location": "westus"}
+					}`),
+				},
+			},
+			expectedLoc: "westus",
+			expectError: false,
+			description: "should fallback to ResourceGroup location when HcpOpenShiftCluster has no location",
+		},
+		{
+			name: "location from other Azure resource",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {}
+					}`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "network.azure.com/v1api20201101",
+						"kind": "VirtualNetwork",
+						"metadata": {"name": "test-vnet"},
+						"spec": {"location": "northeurope"}
+					}`),
+				},
+			},
+			expectedLoc: "northeurope",
+			expectError: false,
+			description: "should fallback to any Azure resource location as last resort",
+		},
+		{
+			name: "HcpOpenShiftCluster takes priority over ResourceGroup",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "resources.azure.com/v1api20200601",
+						"kind": "ResourceGroup",
+						"metadata": {"name": "test-rg"},
+						"spec": {"location": "westus"}
+					}`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {"location": "eastus"}
+					}`),
+				},
+			},
+			expectedLoc: "eastus",
+			expectError: false,
+			description: "should prioritize HcpOpenShiftCluster location over ResourceGroup",
+		},
+		{
+			name: "no location found anywhere",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {}
+					}`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "resources.azure.com/v1api20200601",
+						"kind": "ResourceGroup",
+						"metadata": {"name": "test-rg"},
+						"spec": {}
+					}`),
+				},
+			},
+			expectError:   true,
+			errorContains: "no location found",
+			description:   "should return error when no location is found in any resource",
+		},
+		{
+			name: "malformed JSON in resources",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{invalid json`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "resources.azure.com/v1api20200601",
+						"kind": "ResourceGroup",
+						"metadata": {"name": "test-rg"},
+						"spec": {"location": "westus"}
+					}`),
+				},
+			},
+			expectedLoc: "westus",
+			expectError: false,
+			description: "should skip malformed JSON and continue to next resource",
+		},
+		{
+			name: "empty location string ignored",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {"location": ""}
+					}`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "resources.azure.com/v1api20200601",
+						"kind": "ResourceGroup",
+						"metadata": {"name": "test-rg"},
+						"spec": {"location": "centralus"}
+					}`),
+				},
+			},
+			expectedLoc: "centralus",
+			expectError: false,
+			description: "should ignore empty location strings and fallback to next source",
+		},
+		{
+			name: "location from first Azure resource with location",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {}
+					}`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "network.azure.com/v1api20201101",
+						"kind": "VirtualNetwork",
+						"metadata": {"name": "test-vnet"},
+						"spec": {"location": "northeurope"}
+					}`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "network.azure.com/v1api20201101",
+						"kind": "Subnet",
+						"metadata": {"name": "test-subnet"},
+						"spec": {"location": "southcentralus"}
+					}`),
+				},
+			},
+			expectedLoc: "northeurope",
+			expectError: false,
+			description: "should use first Azure resource with location as fallback",
+		},
+		{
+			name: "no HcpOpenShiftCluster but has ResourceGroup",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "resources.azure.com/v1api20200601",
+						"kind": "ResourceGroup",
+						"metadata": {"name": "test-rg"},
+						"spec": {"location": "japaneast"}
+					}`),
+				},
+			},
+			expectedLoc: "japaneast",
+			expectError: false,
+			description: "should use ResourceGroup location when HcpOpenShiftCluster is missing",
+		},
+		{
+			name: "multiple HcpOpenShiftClusters - first one wins",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster-1"},
+						"spec": {"location": "eastus"}
+					}`),
+				},
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster-2"},
+						"spec": {"location": "westus"}
+					}`),
+				},
+			},
+			expectedLoc: "eastus",
+			expectError: false,
+			description: "should use first HcpOpenShiftCluster location when multiple exist",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			scope := &AROControlPlaneScope{
+				ControlPlane: &cplane.AROControlPlane{
+					Spec: cplane.AROControlPlaneSpec{
+						Resources: tc.resources,
+					},
+				},
+			}
+
+			location, err := scope.Location()
+
+			if tc.expectError {
+				g.Expect(err).To(HaveOccurred(), tc.description)
+				if tc.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tc.errorContains), tc.description)
+				}
+			} else {
+				g.Expect(err).NotTo(HaveOccurred(), tc.description)
+				g.Expect(location).To(Equal(tc.expectedLoc), tc.description)
+			}
+		})
+	}
 }
 
 func TestAROControlPlaneScope_ShouldReconcileKubeconfig(t *testing.T) {
@@ -562,7 +520,6 @@ func TestAROControlPlaneScope_ShouldReconcileKubeconfig(t *testing.T) {
 	testCases := []struct {
 		name           string
 		existingSecret *corev1.Secret
-		expirationTime *time.Time
 		expectedResult bool
 		description    string
 	}{
@@ -627,22 +584,6 @@ func TestAROControlPlaneScope_ShouldReconcileKubeconfig(t *testing.T) {
 			description:    "should reconcile when refresh annotation is present",
 		},
 		{
-			name: "token expired",
-			existingSecret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              secret.Name(cluster.Name, secret.Kubeconfig),
-					Namespace:         cluster.Namespace,
-					CreationTimestamp: metav1.Now(),
-				},
-				Data: map[string][]byte{
-					secret.KubeconfigDataName: []byte("fake-kubeconfig"),
-				},
-			},
-			expirationTime: ptr.To(time.Now().Add(-1 * time.Hour)), // Expired 1 hour ago
-			expectedResult: true,
-			description:    "should reconcile when token is expired",
-		},
-		{
 			name: "secret exists with empty kubeconfig data",
 			existingSecret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
@@ -671,10 +612,9 @@ func TestAROControlPlaneScope_ShouldReconcileKubeconfig(t *testing.T) {
 			}
 
 			scope := &AROControlPlaneScope{
-				Client:                       fakeClient,
-				Cluster:                      cluster,
-				ControlPlane:                 controlPlane,
-				KubeonfigExpirationTimestamp: tc.expirationTime,
+				Client:       fakeClient,
+				Cluster:      cluster,
+				ControlPlane: controlPlane,
 			}
 
 			result := scope.ShouldReconcileKubeconfig(t.Context())

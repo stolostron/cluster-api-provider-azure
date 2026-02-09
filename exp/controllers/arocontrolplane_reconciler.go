@@ -84,7 +84,12 @@ type aroControlPlaneService struct {
 
 // newAROControlPlaneService populates all the services based on input scope.
 func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPlaneService, error) {
-	skuCache, err := resourceskus.GetCache(scope, scope.Location())
+	location, err := scope.Location()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to determine cluster location")
+	}
+
+	skuCache, err := resourceskus.GetCache(scope, location)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed creating a NewCache")
 	}
@@ -165,21 +170,6 @@ func (s *aroControlPlaneService) reconcileKubeconfig(ctx context.Context) error 
 	kubeconfigFile, err := clientcmd.Load(kubeconfigData)
 	if err != nil {
 		return errors.Wrap(err, "failed to parse kubeconfig data")
-	}
-
-	// Token-based expiration handling
-	var tokenExpiresIn *time.Duration
-
-	// Check if this kubeconfig uses token-based authentication
-	for _, authInfo := range kubeconfigFile.AuthInfos {
-		if authInfo.Token != "" {
-			// If we have token expiration info from scope, use it
-			if s.scope.KubeonfigExpirationTimestamp != nil {
-				tokenExpiresIn = ptr.To(time.Until(*s.scope.KubeonfigExpirationTimestamp))
-				log.V(4).Info("kubeconfig token expiration", "expiresIn", tokenExpiresIn, "expiresAt", s.scope.KubeonfigExpirationTimestamp)
-			}
-			break
-		}
 	}
 
 	// Handle certificate authority data
@@ -265,12 +255,6 @@ func (s *aroControlPlaneService) reconcileKubeconfig(ctx context.Context) error 
 
 	// Remove refresh-needed annotation if it exists
 	delete(kubeConfigSecret.Annotations, "aro.azure.com/kubeconfig-refresh-needed")
-
-	// Add token expiration info if available
-	if tokenExpiresIn != nil && *tokenExpiresIn > 0 {
-		expirationTime := time.Now().Add(*tokenExpiresIn)
-		kubeConfigSecret.Annotations["aro.azure.com/token-expires-at"] = expirationTime.Format(time.RFC3339)
-	}
 
 	// Update the secret (preserving existing owner references from ASO)
 	if err := s.kubeclient.Update(ctx, &kubeConfigSecret); err != nil {

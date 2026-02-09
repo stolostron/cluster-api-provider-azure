@@ -283,15 +283,6 @@ func (s *AROMachinePoolScope) Name() string {
 	return s.InfraMachinePool.Name
 }
 
-// Location returns location from the control plane.
-func (s *AROMachinePoolScope) Location() string {
-	// Create a temporary control plane scope to access Location method
-	cpScope := &AROControlPlaneScope{
-		ControlPlane: s.ControlPlane,
-	}
-	return cpScope.Location()
-}
-
 // ResourceGroup returns the cluster resource group from the control plane.
 func (s *AROMachinePoolScope) ResourceGroup() string {
 	// Create a temporary control plane scope to access ResourceGroup method

@@ -114,7 +114,7 @@ func createTestScopeWithOptions(t *testing.T, kubeconfigData *string, createKube
 						"apiVersion": "redhatopenshift.azure.com/v1api20240610preview",
 						"kind": "HcpOpenShiftCluster",
 						"metadata": {"name": "test-cluster"},
-						"spec": {"properties": {"spec": {"version": {"id": "4.14"}}}}
+						"spec": {"location": "eastus", "properties": {"spec": {"version": {"id": "4.14"}}}}
 					}`),
 				},
 			},
@@ -206,11 +206,6 @@ func createTestScopeWithOptions(t *testing.T, kubeconfigData *string, createKube
 
 	aroScope, err := scope.NewAROControlPlaneScope(t.Context(), scopeParams)
 	g.Expect(err).NotTo(HaveOccurred())
-
-	// Set kubeconfig in scope if provided
-	if kubeconfigData != nil {
-		aroScope.SetKubeconfig(kubeconfigData, nil)
-	}
 
 	return aroScope, fakeClient
 }
