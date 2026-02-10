@@ -25,8 +25,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
+	infrav1exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
@@ -41,6 +43,9 @@ type KeyVaultScope interface {
 	SubscriptionID() string
 	GetKeyVaultResourceID() string
 	SetVaultInfo(vaultName, vaultKeyName, vaultKeyVersion *string)
+	GetClient() client.Client
+	ClusterName() string
+	Namespace() string
 }
 
 // Service provides operations on Azure Key Vault resources.
@@ -79,22 +84,24 @@ func (s *Service) Reconcile(ctx context.Context) error {
 
 	// Get all KeyVault specs
 	keyVaultSpecs := s.Scope.KeyVaultSpecs()
-	if len(keyVaultSpecs) == 0 {
-		return nil
-	}
 
-	// Process each KeyVault spec
-	for _, keyVaultSpec := range keyVaultSpecs {
-		log.V(2).Info("reconciling KeyVault", "keyvault", keyVaultSpec.ResourceName())
+	// In resources mode (e.g., ARO HCP), KeyVault vault resources are managed by ASO,
+	// so KeyVaultSpecs may be empty. However, we still need to ensure encryption keys exist.
+	if len(keyVaultSpecs) > 0 {
+		// Process each KeyVault spec (field-based mode)
+		for _, keyVaultSpec := range keyVaultSpecs {
+			log.V(2).Info("reconciling KeyVault", "keyvault", keyVaultSpec.ResourceName())
 
-		// Check if KeyVault exists
-		_, err := s.client.Get(ctx, keyVaultSpec)
-		if err != nil {
-			return errors.Wrapf(err, "failed to get KeyVault %s", keyVaultSpec.ResourceName())
+			// Check if KeyVault exists
+			_, err := s.client.Get(ctx, keyVaultSpec)
+			if err != nil {
+				return errors.Wrapf(err, "failed to get KeyVault %s", keyVaultSpec.ResourceName())
+			}
 		}
 	}
 
-	// After Key Vault is reconciled, ensure the ETCD encryption key exists
+	// Ensure the ETCD encryption key exists (works in both field-based and resources modes)
+	// In resources mode, the vault is managed by ASO but keys must be managed via Azure SDK
 	if err := s.EnsureETCDEncryptionKey(ctx, s.Scope); err != nil {
 		return errors.Wrap(err, "failed to ensure ETCD encryption key exists")
 	}
@@ -132,6 +139,19 @@ func (s *Service) EnsureETCDEncryptionKey(ctx context.Context, scope KeyVaultSco
 	vaultName, err := extractVaultNameFromResourceID(keyVaultResourceID)
 	if err != nil {
 		return errors.Wrap(err, "failed to extract vault name from resource ID")
+	}
+
+	// Check if the vault is ready (if managed by AROCluster)
+	// This prevents race conditions where we try to create a key before the vault is provisioned
+	vaultReady, err := s.isVaultReadyInAROCluster(ctx, scope, vaultName)
+	if err != nil {
+		return errors.Wrap(err, "failed to check vault readiness")
+	}
+	if !vaultReady {
+		log.V(2).Info("Key Vault not ready yet, waiting for AROCluster to provision it", "vaultName", vaultName)
+		// Return nil to requeue without error - vault is still being provisioned by AROCluster
+		// This avoids logging errors during normal provisioning flow
+		return nil
 	}
 
 	// Construct the Key Vault URL
@@ -316,4 +336,60 @@ func isKeyNotFoundError(err error) bool {
 		strings.Contains(err.Error(), "KeyNotFound") ||
 		strings.Contains(err.Error(), "NotFound") ||
 		strings.Contains(err.Error(), "404")
+}
+
+// isVaultReadyInAROCluster checks if the Key Vault is ready in the AROCluster's status.
+// This prevents race conditions where we try to create a key before the vault is provisioned by ASO.
+// Returns true if:
+// - The vault is found in AROCluster.Status.Resources and is ready.
+// - AROCluster doesn't exist (vault managed elsewhere).
+// - Vault not found in AROCluster resources (vault managed elsewhere).
+func (s *Service) isVaultReadyInAROCluster(ctx context.Context, scope KeyVaultScope, vaultName string) (bool, error) {
+	ctx, log, done := tele.StartSpanWithLogger(ctx, "keyvault.Service.isVaultReadyInAROCluster")
+	defer done()
+
+	kubeclient := scope.GetClient()
+	if kubeclient == nil {
+		// No k8s client available, assume vault is ready (not managed by AROCluster)
+		log.V(2).Info("No kubernetes client available, assuming vault is ready")
+		return true, nil
+	}
+
+	// Try to get AROCluster from the cluster namespace
+	aroCluster := &infrav1exp.AROCluster{}
+	// The AROCluster name matches the cluster name
+	aroClusterKey := client.ObjectKey{
+		Namespace: scope.Namespace(),
+		Name:      scope.ClusterName(),
+	}
+
+	if err := kubeclient.Get(ctx, aroClusterKey, aroCluster); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return false, errors.Wrapf(err, "failed to get AROCluster %s/%s", aroClusterKey.Namespace, aroClusterKey.Name)
+		}
+		// AROCluster not found - vault is not managed by AROCluster, assume it's ready
+		log.V(2).Info("AROCluster not found, assuming vault is managed elsewhere and is ready",
+			"aroCluster", aroClusterKey.Name, "namespace", aroClusterKey.Namespace)
+		return true, nil
+	}
+
+	// Check if the vault is in the AROCluster's status resources
+	for _, resource := range aroCluster.Status.Resources {
+		if resource.Resource.Group == "keyvault.azure.com" &&
+			resource.Resource.Kind == "Vault" &&
+			resource.Resource.Name == vaultName {
+			// Found the vault in status, check if it's ready
+			if resource.Ready {
+				log.V(2).Info("Vault is ready in AROCluster status", "vaultName", vaultName)
+				return true, nil
+			}
+			// Vault exists but not ready yet
+			log.V(2).Info("Vault not ready yet in AROCluster status", "vaultName", vaultName)
+			return false, nil
+		}
+	}
+
+	// Vault not found in AROCluster resources - it's managed elsewhere, assume ready
+	log.V(2).Info("Vault not found in AROCluster resources, assuming it's managed elsewhere and is ready", "vaultName", vaultName)
+	return true, nil
 }

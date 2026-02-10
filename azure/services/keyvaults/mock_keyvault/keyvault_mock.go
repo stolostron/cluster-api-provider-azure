@@ -34,6 +34,7 @@ import (
 	v1beta1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	azure "sigs.k8s.io/cluster-api-provider-azure/azure"
 	v1beta10 "sigs.k8s.io/cluster-api/api/core/v1beta1"
+	client "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // MockKeyVaultScope is a mock of KeyVaultScope interface.
@@ -116,6 +117,20 @@ func (mr *MockKeyVaultScopeMockRecorder) CloudEnvironment() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloudEnvironment", reflect.TypeOf((*MockKeyVaultScope)(nil).CloudEnvironment))
 }
 
+// ClusterName mocks base method.
+func (m *MockKeyVaultScope) ClusterName() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterName")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// ClusterName indicates an expected call of ClusterName.
+func (mr *MockKeyVaultScopeMockRecorder) ClusterName() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterName", reflect.TypeOf((*MockKeyVaultScope)(nil).ClusterName))
+}
+
 // DefaultedAzureCallTimeout mocks base method.
 func (m *MockKeyVaultScope) DefaultedAzureCallTimeout() time.Duration {
 	m.ctrl.T.Helper()
@@ -168,6 +183,20 @@ func (m *MockKeyVaultScope) DeleteLongRunningOperationState(arg0, arg1, arg2 str
 func (mr *MockKeyVaultScopeMockRecorder) DeleteLongRunningOperationState(arg0, arg1, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLongRunningOperationState", reflect.TypeOf((*MockKeyVaultScope)(nil).DeleteLongRunningOperationState), arg0, arg1, arg2)
+}
+
+// GetClient mocks base method.
+func (m *MockKeyVaultScope) GetClient() client.Client {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClient")
+	ret0, _ := ret[0].(client.Client)
+	return ret0
+}
+
+// GetClient indicates an expected call of GetClient.
+func (mr *MockKeyVaultScopeMockRecorder) GetClient() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClient", reflect.TypeOf((*MockKeyVaultScope)(nil).GetClient))
 }
 
 // GetKeyVaultResourceID mocks base method.
@@ -224,6 +253,20 @@ func (m *MockKeyVaultScope) KeyVaultSpecs() []azure.ResourceSpecGetter {
 func (mr *MockKeyVaultScopeMockRecorder) KeyVaultSpecs() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KeyVaultSpecs", reflect.TypeOf((*MockKeyVaultScope)(nil).KeyVaultSpecs))
+}
+
+// Namespace mocks base method.
+func (m *MockKeyVaultScope) Namespace() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Namespace")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// Namespace indicates an expected call of Namespace.
+func (mr *MockKeyVaultScopeMockRecorder) Namespace() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Namespace", reflect.TypeOf((*MockKeyVaultScope)(nil).Namespace))
 }
 
 // ResourceGroup mocks base method.

@@ -20,12 +20,8 @@ import (
 	"context"
 	"fmt"
 
-	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
-	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	"github.com/pkg/errors"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -257,16 +253,6 @@ func (s *AROMachinePoolScope) PatchCAPIMachinePoolObject(ctx context.Context) er
 	)
 }
 
-// SetAgentPoolProviderIDList sets a list of agent pool's Azure VM IDs.
-func (s *AROMachinePoolScope) SetAgentPoolProviderIDList(providerIDs []string) {
-	s.InfraMachinePool.Spec.ProviderIDList = providerIDs
-}
-
-// SetAgentPoolReplicas sets the number of agent pool replicas.
-func (s *AROMachinePoolScope) SetAgentPoolReplicas(replicas int32) {
-	s.InfraMachinePool.Status.Replicas = replicas
-}
-
 // SetAgentPoolProvisioningState sets the provisioning state for the agent pool.
 func (s *AROMachinePoolScope) SetAgentPoolProvisioningState(state string) {
 	s.InfraMachinePool.Status.ProvisioningState = state
@@ -297,19 +283,13 @@ func (s *AROMachinePoolScope) Name() string {
 	return s.InfraMachinePool.Name
 }
 
-// Location returns location.
-func (s *AROMachinePoolScope) Location() string {
-	return s.ControlPlane.Spec.Platform.Location
-}
-
-// ResourceGroup returns the cluster resource group.
+// ResourceGroup returns the cluster resource group from the control plane.
 func (s *AROMachinePoolScope) ResourceGroup() string {
-	return s.ControlPlane.Spec.Platform.ResourceGroup
-}
-
-// NodeResourceGroup returns the node resource group name.
-func (s *AROMachinePoolScope) NodeResourceGroup() string {
-	return s.ControlPlane.NodeResourceGroup()
+	// Create a temporary control plane scope to access ResourceGroup method
+	cpScope := &AROControlPlaneScope{
+		ControlPlane: s.ControlPlane,
+	}
+	return cpScope.ResourceGroup()
 }
 
 // ClusterName returns the cluster name.
@@ -320,114 +300,4 @@ func (s *AROMachinePoolScope) ClusterName() string {
 // Namespace returns the cluster namespace.
 func (s *AROMachinePoolScope) Namespace() string {
 	return s.Cluster.Namespace
-}
-
-// HcpOpenShiftNodePoolProperties returns the properties for the ASO HcpOpenShiftClusterNodePool resource.
-func (s *AROMachinePoolScope) HcpOpenShiftNodePoolProperties() *asoredhatopenshiftv1.NodePoolProperties {
-	props := &asoredhatopenshiftv1.NodePoolProperties{}
-
-	// Set auto-repair
-	props.AutoRepair = ptr.To(s.InfraMachinePool.Spec.AutoRepair)
-
-	// Set autoscaling or replicas
-	if s.InfraMachinePool.Spec.Autoscaling != nil {
-		props.AutoScaling = &asoredhatopenshiftv1.NodePoolAutoScaling{
-			Min: ptr.To(s.InfraMachinePool.Spec.Autoscaling.MinReplicas),
-			Max: ptr.To(s.InfraMachinePool.Spec.Autoscaling.MaxReplicas),
-		}
-	} else if s.MachinePool.Spec.Replicas != nil {
-		props.Replicas = ptr.To(int(*s.MachinePool.Spec.Replicas))
-	}
-
-	// Set labels
-	if len(s.InfraMachinePool.Spec.Labels) > 0 {
-		labels := make([]asoredhatopenshiftv1.Label, 0, len(s.InfraMachinePool.Spec.Labels))
-		for key, value := range s.InfraMachinePool.Spec.Labels {
-			labels = append(labels, asoredhatopenshiftv1.Label{
-				Key:   ptr.To(key),
-				Value: ptr.To(value),
-			})
-		}
-		props.Labels = labels
-	}
-
-	// Set taints
-	if len(s.InfraMachinePool.Spec.Taints) > 0 {
-		taints := make([]asoredhatopenshiftv1.Taint, 0, len(s.InfraMachinePool.Spec.Taints))
-		for _, taint := range s.InfraMachinePool.Spec.Taints {
-			asoTaint := asoredhatopenshiftv1.Taint{
-				Key: ptr.To(taint.Key),
-			}
-			if taint.Value != "" {
-				asoTaint.Value = ptr.To(taint.Value)
-			}
-			// Convert effect
-			switch taint.Effect {
-			case corev1.TaintEffectNoSchedule:
-				asoTaint.Effect = ptr.To(asoredhatopenshiftv1.Effect_NoSchedule)
-			case corev1.TaintEffectPreferNoSchedule:
-				asoTaint.Effect = ptr.To(asoredhatopenshiftv1.Effect_PreferNoSchedule)
-			case corev1.TaintEffectNoExecute:
-				asoTaint.Effect = ptr.To(asoredhatopenshiftv1.Effect_NoExecute)
-			}
-			taints = append(taints, asoTaint)
-		}
-		props.Taints = taints
-	}
-
-	// Set version
-	if s.InfraMachinePool.Spec.Version != "" {
-		props.Version = &asoredhatopenshiftv1.NodePoolVersionProfile{
-			Id:           ptr.To(s.InfraMachinePool.Spec.Version),
-			ChannelGroup: ptr.To(string(s.ControlPlane.Spec.ChannelGroup)),
-		}
-	}
-
-	// Set platform configuration
-	platform := &asoredhatopenshiftv1.NodePoolPlatformProfile{}
-
-	// VM size
-	if s.InfraMachinePool.Spec.Platform.VMSize != "" {
-		platform.VmSize = ptr.To(s.InfraMachinePool.Spec.Platform.VMSize)
-	}
-
-	// Availability zone
-	if s.InfraMachinePool.Spec.Platform.AvailabilityZone != "" {
-		platform.AvailabilityZone = ptr.To(s.InfraMachinePool.Spec.Platform.AvailabilityZone)
-	}
-
-	// OSDisk configuration
-	osDisk := &asoredhatopenshiftv1.OsDiskProfile{}
-	if s.InfraMachinePool.Spec.Platform.DiskSizeGiB > 0 {
-		osDisk.SizeGiB = ptr.To(int(s.InfraMachinePool.Spec.Platform.DiskSizeGiB))
-	}
-
-	// Disk storage account type
-	if s.InfraMachinePool.Spec.Platform.DiskStorageAccountType != "" {
-		switch s.InfraMachinePool.Spec.Platform.DiskStorageAccountType {
-		case "Premium_LRS":
-			osDisk.DiskStorageAccountType = ptr.To(asoredhatopenshiftv1.OsDiskProfile_DiskStorageAccountType_Premium_LRS)
-		case "StandardSSD_LRS":
-			osDisk.DiskStorageAccountType = ptr.To(asoredhatopenshiftv1.OsDiskProfile_DiskStorageAccountType_StandardSSD_LRS)
-		case "Standard_LRS":
-			osDisk.DiskStorageAccountType = ptr.To(asoredhatopenshiftv1.OsDiskProfile_DiskStorageAccountType_Standard_LRS)
-		}
-	}
-
-	platform.OsDisk = osDisk
-
-	// Subnet - use reference if SubnetRef is set, otherwise use direct ID
-	if s.InfraMachinePool.Spec.Platform.SubnetRef != "" {
-		platform.SubnetReference = &genruntime.ResourceReference{
-			ARMID: s.InfraMachinePool.Spec.Platform.Subnet,
-		}
-	} else if s.InfraMachinePool.Spec.Platform.Subnet != "" {
-		platform.SubnetReference = &genruntime.ResourceReference{
-			ARMID: s.InfraMachinePool.Spec.Platform.Subnet,
-		}
-	}
-
-	props.Platform = platform
-
-	return props
 }

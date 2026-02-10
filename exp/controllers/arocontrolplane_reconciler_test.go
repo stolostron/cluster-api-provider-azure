@@ -17,14 +17,17 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
+	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -34,11 +37,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/mock_azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
-	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
+	infrav1beta2 "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/util/reconciler"
 )
 
@@ -75,8 +77,10 @@ func createTestScopeWithOptions(t *testing.T, kubeconfigData *string, createKube
 	scheme := runtime.NewScheme()
 	_ = clusterv1.AddToScheme(scheme)
 	_ = infrav1.AddToScheme(scheme)
+	_ = infrav1beta2.AddToScheme(scheme)
 	_ = cplane.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
+	_ = asoredhatopenshiftv1.AddToScheme(scheme)
 
 	cluster := &clusterv1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -98,16 +102,21 @@ func createTestScopeWithOptions(t *testing.T, kubeconfigData *string, createKube
 		Spec: cplane.AROControlPlaneSpec{
 			SubscriptionID:   "12345678-1234-1234-1234-123456789012",
 			AzureEnvironment: "AzurePublicCloud",
-			Platform: cplane.AROPlatformProfileControlPlane{
-				Location:               "eastus",
-				ResourceGroup:          "test-rg",
-				Subnet:                 "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
-				NetworkSecurityGroupID: "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/networkSecurityGroups/test-nsg",
-			},
 			IdentityRef: &corev1.ObjectReference{
 				Name:      "test-identity",
 				Namespace: "default",
 				Kind:      "AzureClusterIdentity",
+			},
+			// Add test resources for mutator
+			Resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240610preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {"location": "eastus", "properties": {"spec": {"version": {"id": "4.14"}}}}
+					}`),
+				},
 			},
 		},
 		Status: cplane.AROControlPlaneStatus{
@@ -128,8 +137,32 @@ func createTestScopeWithOptions(t *testing.T, kubeconfigData *string, createKube
 		},
 	}
 
+	// Create AROCluster with infrastructure ready
+	aroCluster := &infrav1beta2.AROCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-arocluster",
+			Namespace: "default",
+		},
+		Status: infrav1beta2.AROClusterStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:   string(infrav1beta2.ResourcesReadyCondition),
+					Status: metav1.ConditionTrue,
+					Reason: "InfrastructureReady",
+				},
+			},
+		},
+	}
+
+	// Set the cluster's InfrastructureRef to point to the AROCluster
+	cluster.Spec.InfrastructureRef = clusterv1.ContractVersionedObjectReference{
+		Name:     aroCluster.Name,
+		APIGroup: infrav1beta2.GroupVersion.Group,
+		Kind:     infrav1beta2.AROClusterKind,
+	}
+
 	var initObjects []client.Object
-	initObjects = append(initObjects, cluster, controlPlane, identity)
+	initObjects = append(initObjects, cluster, controlPlane, identity, aroCluster)
 
 	// Add kubeconfig secret if kubeconfig data is provided and requested
 	if kubeconfigData != nil && createKubeconfigSecret {
@@ -174,11 +207,6 @@ func createTestScopeWithOptions(t *testing.T, kubeconfigData *string, createKube
 	aroScope, err := scope.NewAROControlPlaneScope(t.Context(), scopeParams)
 	g.Expect(err).NotTo(HaveOccurred())
 
-	// Set kubeconfig in scope if provided
-	if kubeconfigData != nil {
-		aroScope.SetKubeconfig(kubeconfigData, nil)
-	}
-
 	return aroScope, fakeClient
 }
 
@@ -192,7 +220,9 @@ func TestNewAROControlPlaneService(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(service).NotTo(BeNil())
 	g.Expect(service.scope).To(Equal(aroScope))
-	g.Expect(service.services).To(HaveLen(10)) // groups, networksecuritygroups, virtualnetworks, subnets, vaults, keyvaults, userassignedidentities, roleassignmentsaso, hcpopenshiftclusters, hcpopenshiftclustersexternalauth (ASO-based)
+	g.Expect(service.kubeclient).NotTo(BeNil())
+	g.Expect(service.newResourceReconciler).NotTo(BeNil())
+	g.Expect(service.keyVaultSvc).NotTo(BeNil())
 	g.Expect(service.skuCache).NotTo(BeNil())
 	g.Expect(service.Reconcile).NotTo(BeNil())
 	g.Expect(service.Pause).NotTo(BeNil())
@@ -215,16 +245,21 @@ func TestAROControlPlaneService_Reconcile(t *testing.T) {
 				t.Helper()
 				aroScope, _ := createTestScope(t, ptr.To(TestKubeconfigWithValidCA))
 
-				// Create a service with mocked Azure services
+				// Create mock keyVault service that succeeds
+				mockKeyVaultSvc := &mockServiceReconciler{}
+
+				// Create a service with Resources mode
 				service := &aroControlPlaneService{
-					scope:    aroScope,
-					services: []azure.ServiceReconciler{},
-					skuCache: resourceskus.NewStaticCache(nil, "eastus"),
+					scope:       aroScope,
+					kubeclient:  aroScope.GetClient(),
+					keyVaultSvc: mockKeyVaultSvc,
+					newResourceReconciler: func(cp *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
+						return &mockResourceReconciler{}
+					},
 				}
 				service.Reconcile = service.reconcile
 				service.Pause = service.pause
 				service.Delete = service.delete
-				service.kubeclient = aroScope.GetClient()
 
 				return service, aroScope
 			},
@@ -237,15 +272,20 @@ func TestAROControlPlaneService_Reconcile(t *testing.T) {
 				t.Helper()
 				aroScope, _ := createTestScope(t, ptr.To(TestKubeconfigWithValidCA))
 
+				// Create mock keyVault service that succeeds
+				mockKeyVaultSvc := &mockServiceReconciler{}
+
 				service := &aroControlPlaneService{
-					scope:    aroScope,
-					services: []azure.ServiceReconciler{},
-					skuCache: resourceskus.NewStaticCache(nil, "eastus"),
+					scope:       aroScope,
+					kubeclient:  aroScope.GetClient(),
+					keyVaultSvc: mockKeyVaultSvc,
+					newResourceReconciler: func(cp *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
+						return &mockResourceReconciler{}
+					},
 				}
 				service.Reconcile = service.reconcile
 				service.Pause = service.pause
 				service.Delete = service.delete
-				service.kubeclient = aroScope.GetClient()
 
 				return service, aroScope
 			},
@@ -262,25 +302,26 @@ func TestAROControlPlaneService_Reconcile(t *testing.T) {
 			},
 		},
 		{
-			name:          "service reconcile error",
+			name:          "resource reconcile error",
 			expectedError: true,
 			mockServices: func(t *testing.T) (*aroControlPlaneService, *scope.AROControlPlaneScope) {
 				t.Helper()
 				aroScope, _ := createTestScope(t, nil)
 
-				mockService := mock_azure.NewMockServiceReconciler(gomock.NewController(t))
-				mockService.EXPECT().Reconcile(gomock.Any()).Return(errors.New("service error"))
-				mockService.EXPECT().Name().Return("test-service").AnyTimes()
+				// Create mock keyVault service that succeeds
+				mockKeyVaultSvc := &mockServiceReconciler{}
 
 				service := &aroControlPlaneService{
-					scope:    aroScope,
-					services: []azure.ServiceReconciler{mockService},
-					skuCache: resourceskus.NewStaticCache(nil, "eastus"),
+					scope:       aroScope,
+					kubeclient:  aroScope.GetClient(),
+					keyVaultSvc: mockKeyVaultSvc,
+					newResourceReconciler: func(cp *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
+						return &mockResourceReconciler{reconcileErr: errors.New("resource reconcile error")}
+					},
 				}
 				service.Reconcile = service.reconcile
 				service.Pause = service.pause
 				service.Delete = service.delete
-				service.kubeclient = aroScope.GetClient()
 
 				return service, aroScope
 			},
@@ -322,9 +363,11 @@ func TestAROControlPlaneService_Pause(t *testing.T) {
 				aroScope, _ := createTestScope(t, nil)
 
 				service := &aroControlPlaneService{
-					scope:    aroScope,
-					services: []azure.ServiceReconciler{},
-					skuCache: resourceskus.NewStaticCache(nil, "eastus"),
+					scope:      aroScope,
+					kubeclient: aroScope.GetClient(),
+					newResourceReconciler: func(cp *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
+						return &mockResourceReconciler{}
+					},
 				}
 				service.Reconcile = service.reconcile
 				service.Pause = service.pause
@@ -334,30 +377,18 @@ func TestAROControlPlaneService_Pause(t *testing.T) {
 			},
 		},
 		{
-			name:          "pause with service error",
+			name:          "pause with resource error",
 			expectedError: true,
 			mockServices: func(t *testing.T) *aroControlPlaneService {
 				t.Helper()
 				aroScope, _ := createTestScope(t, nil)
 
-				mockService := mock_azure.NewMockServiceReconciler(gomock.NewController(t))
-				mockPauser := mock_azure.NewMockPauser(gomock.NewController(t))
-				mockPauser.EXPECT().Pause(gomock.Any()).Return(errors.New("pause error"))
-				mockService.EXPECT().Name().Return("test-service")
-
-				// Create a service that implements both interfaces
-				serviceWithPauser := struct {
-					azure.ServiceReconciler
-					azure.Pauser
-				}{
-					ServiceReconciler: mockService,
-					Pauser:            mockPauser,
-				}
-
 				service := &aroControlPlaneService{
-					scope:    aroScope,
-					services: []azure.ServiceReconciler{serviceWithPauser},
-					skuCache: resourceskus.NewStaticCache(nil, "eastus"),
+					scope:      aroScope,
+					kubeclient: aroScope.GetClient(),
+					newResourceReconciler: func(cp *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
+						return &mockResourceReconciler{pauseErr: errors.New("pause error")}
+					},
 				}
 				service.Reconcile = service.reconcile
 				service.Pause = service.pause
@@ -399,9 +430,11 @@ func TestAROControlPlaneService_Delete(t *testing.T) {
 				aroScope, _ := createTestScope(t, nil)
 
 				service := &aroControlPlaneService{
-					scope:    aroScope,
-					services: []azure.ServiceReconciler{},
-					skuCache: resourceskus.NewStaticCache(nil, "eastus"),
+					scope:      aroScope,
+					kubeclient: aroScope.GetClient(),
+					newResourceReconciler: func(cp *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
+						return &mockResourceReconciler{}
+					},
 				}
 				service.Reconcile = service.reconcile
 				service.Pause = service.pause
@@ -411,20 +444,18 @@ func TestAROControlPlaneService_Delete(t *testing.T) {
 			},
 		},
 		{
-			name:          "delete with service error",
+			name:          "delete with resource error",
 			expectedError: true,
 			mockServices: func(t *testing.T) *aroControlPlaneService {
 				t.Helper()
 				aroScope, _ := createTestScope(t, nil)
 
-				mockService := mock_azure.NewMockServiceReconciler(gomock.NewController(t))
-				mockService.EXPECT().Delete(gomock.Any()).Return(errors.New("delete error"))
-				mockService.EXPECT().Name().Return("test-service")
-
 				service := &aroControlPlaneService{
-					scope:    aroScope,
-					services: []azure.ServiceReconciler{mockService},
-					skuCache: resourceskus.NewStaticCache(nil, "eastus"),
+					scope:      aroScope,
+					kubeclient: aroScope.GetClient(),
+					newResourceReconciler: func(cp *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
+						return &mockResourceReconciler{deleteErr: errors.New("delete error")}
+					},
 				}
 				service.Reconcile = service.reconcile
 				service.Pause = service.pause
@@ -546,54 +577,62 @@ users:
 	}
 }
 
-func TestAROControlPlaneService_GetService(t *testing.T) {
-	aroScope, _ := createTestScope(t, nil)
+// mockResourceReconciler is a mock implementation of resourceReconciler for testing
+type mockResourceReconciler struct {
+	reconcileErr error
+	pauseErr     error
+	deleteErr    error
+}
 
-	mockService := mock_azure.NewMockServiceReconciler(gomock.NewController(t))
-	mockService.EXPECT().Name().Return("test-service").AnyTimes()
-
-	service := &aroControlPlaneService{
-		scope:    aroScope,
-		services: []azure.ServiceReconciler{mockService},
+func (m *mockResourceReconciler) Reconcile(ctx context.Context) error {
+	if m.reconcileErr != nil {
+		return m.reconcileErr
 	}
+	return nil
+}
 
-	testCases := []struct {
-		name          string
-		serviceName   string
-		expectedError bool
-		expectedNil   bool
-	}{
-		{
-			name:          "existing service",
-			serviceName:   "test-service",
-			expectedError: false,
-			expectedNil:   false,
-		},
-		{
-			name:          "non-existing service",
-			serviceName:   "non-existing-service",
-			expectedError: true,
-			expectedNil:   true,
-		},
+func (m *mockResourceReconciler) Pause(ctx context.Context) error {
+	if m.pauseErr != nil {
+		return m.pauseErr
 	}
+	return nil
+}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			result, err := service.getService(tc.serviceName)
-
-			if tc.expectedError {
-				g.Expect(err).To(HaveOccurred())
-			} else {
-				g.Expect(err).NotTo(HaveOccurred())
-			}
-
-			if tc.expectedNil {
-				g.Expect(result).To(BeNil())
-			} else {
-				g.Expect(result).NotTo(BeNil())
-			}
-		})
+func (m *mockResourceReconciler) Delete(ctx context.Context) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
 	}
+	return nil
+}
+
+// mockServiceReconciler is a mock implementation of azure.ServiceReconciler for testing.
+type mockServiceReconciler struct {
+	reconcileErr error
+	pauseErr     error
+	deleteErr    error
+}
+
+func (m *mockServiceReconciler) Reconcile(ctx context.Context) error {
+	if m.reconcileErr != nil {
+		return m.reconcileErr
+	}
+	return nil
+}
+
+func (m *mockServiceReconciler) Pause(ctx context.Context) error {
+	if m.pauseErr != nil {
+		return m.pauseErr
+	}
+	return nil
+}
+
+func (m *mockServiceReconciler) Delete(ctx context.Context) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	return nil
+}
+
+func (m *mockServiceReconciler) Name() string {
+	return "mockServiceReconciler"
 }

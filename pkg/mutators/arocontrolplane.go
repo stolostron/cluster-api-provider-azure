@@ -21,8 +21,11 @@ import (
 	"fmt"
 	"strings"
 
+	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/secret"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -35,10 +38,13 @@ import (
 var (
 	// ErrNoAROClusterDefined describes an AROControlPlane without a AROCluster.
 	ErrNoAROClusterDefined = fmt.Errorf("no %s AROCluster defined in AROControlPlane spec.resources", infrav1exp.GroupVersion.Group)
+
+	// ErrNoHcpOpenShiftClusterDefined describes an AROControlPlane without a HcpOpenShiftCluster.
+	ErrNoHcpOpenShiftClusterDefined = fmt.Errorf("no %s HcpOpenShiftCluster defined in AROControlPlane spec.resources", asoredhatopenshiftv1.GroupVersion.Group)
 )
 
 // SetAROClusterDefaults propagates values defined by Cluster API to an ARO AROCluster.
-func SetAROClusterDefaults(_ client.Client, aroControlPlane *controlv1.AROControlPlane, cluster *clusterv1beta1.Cluster) ResourcesMutator {
+func SetAROClusterDefaults(_ client.Client, _ *controlv1.AROControlPlane, cluster *clusterv1beta1.Cluster) ResourcesMutator {
 	return func(ctx context.Context, us []*unstructured.Unstructured) error {
 		ctx, _, done := tele.StartSpanWithLogger(ctx, "mutators.SetAROClusterDefaults")
 		defer done()
@@ -57,10 +63,6 @@ func SetAROClusterDefaults(_ client.Client, aroControlPlane *controlv1.AROContro
 			return reconcile.TerminalError(ErrNoAROClusterDefined)
 		}
 
-		if err := setAROClusterKubernetesVersion(ctx, aroControlPlane, aroClusterPath, aroCluster); err != nil {
-			return err
-		}
-
 		if err := setAROClusterServiceCIDR(ctx, cluster, aroClusterPath, aroCluster); err != nil {
 			return err
 		}
@@ -75,36 +77,6 @@ func SetAROClusterDefaults(_ client.Client, aroControlPlane *controlv1.AROContro
 
 		return nil
 	}
-}
-
-func setAROClusterKubernetesVersion(ctx context.Context, aroControlPlane *controlv1.AROControlPlane, aroClusterPath string, aroCluster *unstructured.Unstructured) error {
-	_, log, done := tele.StartSpanWithLogger(ctx, "mutators.setAROClusterKubernetesVersion")
-	defer done()
-
-	capzK8sVersion := strings.TrimPrefix(aroControlPlane.Spec.Version, "v")
-	if capzK8sVersion == "" {
-		// When the CAPI contract field isn't set, any value for version in the embedded ARO resource may be specified.
-		return nil
-	}
-
-	k8sVersionPath := []string{"spec", "kubernetesVersion"}
-	userK8sVersion, k8sVersionFound, err := unstructured.NestedString(aroCluster.UnstructuredContent(), k8sVersionPath...)
-	if err != nil {
-		return err
-	}
-	setK8sVersion := mutation{
-		location: aroClusterPath + "." + strings.Join(k8sVersionPath, "."),
-		val:      capzK8sVersion,
-		reason:   "because spec.version is set to " + aroControlPlane.Spec.Version,
-	}
-	if k8sVersionFound && userK8sVersion != capzK8sVersion {
-		return Incompatible{
-			mutation: setK8sVersion,
-			userVal:  userK8sVersion,
-		}
-	}
-	logMutation(log, setK8sVersion)
-	return unstructured.SetNestedField(aroCluster.UnstructuredContent(), capzK8sVersion, k8sVersionPath...)
 }
 
 func setAROClusterServiceCIDR(ctx context.Context, cluster *clusterv1beta1.Cluster, aroClusterPath string, aroCluster *unstructured.Unstructured) error {
@@ -210,4 +182,217 @@ func setAROClusterCredentials(ctx context.Context, cluster *clusterv1beta1.Clust
 	}
 	logMutation(log, setCreds)
 	return unstructured.SetNestedMap(aroCluster.UnstructuredContent(), secrets, "spec", "operatorSpec", "secrets")
+}
+
+// VaultInfoProvider provides vault encryption key information.
+type VaultInfoProvider interface {
+	GetVaultInfo() (vaultName, keyName, keyVersion *string)
+}
+
+// SetHcpOpenShiftClusterDefaults sets defaults for HcpOpenShiftCluster resources.
+// This mutator automatically sets owner references for HcpOpenShiftClustersExternalAuth resources.
+func SetHcpOpenShiftClusterDefaults(_ client.Client, _ *controlv1.AROControlPlane, cluster *clusterv1.Cluster) ResourcesMutator {
+	return func(ctx context.Context, us []*unstructured.Unstructured) error {
+		ctx, log, done := tele.StartSpanWithLogger(ctx, "mutators.SetHcpOpenShiftClusterDefaults")
+		defer done()
+
+		// Find the HcpOpenShiftCluster
+		var hcpCluster *unstructured.Unstructured
+		var hcpClusterPath string
+		var hcpClusterName string
+		for i, u := range us {
+			if u.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
+				u.GroupVersionKind().Kind == "HcpOpenShiftCluster" {
+				hcpCluster = u
+				hcpClusterName = u.GetName()
+				hcpClusterPath = fmt.Sprintf("spec.resources[%d]", i)
+				break
+			}
+		}
+		if hcpCluster == nil {
+			return reconcile.TerminalError(ErrNoHcpOpenShiftClusterDefined)
+		}
+
+		// Set kubeconfig secret if not defined
+		if err := setHcpOpenShiftClusterCredentials(ctx, cluster, hcpClusterPath, hcpCluster, log); err != nil {
+			return err
+		}
+
+		// Set owner references for HcpOpenShiftClustersExternalAuth resources
+		for i, u := range us {
+			if u.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
+				u.GroupVersionKind().Kind == "HcpOpenShiftClustersExternalAuth" {
+				if err := setExternalAuthOwner(ctx, u, hcpClusterName, fmt.Sprintf("spec.resources[%d]", i), log); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+}
+
+// SetHcpOpenShiftClusterEncryptionKey sets the ETCD encryption key version if KMS encryption is configured.
+// This mutator should run after the KeyVault service has created the encryption key.
+func SetHcpOpenShiftClusterEncryptionKey(vaultInfoProvider VaultInfoProvider) ResourcesMutator {
+	return func(ctx context.Context, us []*unstructured.Unstructured) error {
+		_, log, done := tele.StartSpanWithLogger(ctx, "mutators.SetHcpOpenShiftClusterEncryptionKey")
+		defer done()
+
+		// Find the HcpOpenShiftCluster
+		var hcpCluster *unstructured.Unstructured
+		var hcpClusterPath string
+		for i, u := range us {
+			if u.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
+				u.GroupVersionKind().Kind == "HcpOpenShiftCluster" {
+				hcpCluster = u
+				hcpClusterPath = fmt.Sprintf("spec.resources[%d]", i)
+				break
+			}
+		}
+		if hcpCluster == nil {
+			// No HcpOpenShiftCluster found, nothing to do
+			return nil
+		}
+
+		// Check if ETCD encryption with KMS is configured
+		etcdPath := []string{"spec", "properties", "etcd", "dataEncryption"}
+		etcdEncryption, hasEtcdEncryption, err := unstructured.NestedMap(hcpCluster.UnstructuredContent(), etcdPath...)
+		if err != nil {
+			return err
+		}
+
+		if !hasEtcdEncryption {
+			// No ETCD encryption configured, nothing to do
+			return nil
+		}
+
+		// Check if KMS is configured
+		kmPath := []string{"customerManaged", "kms"}
+		_, hasKMS, err := unstructured.NestedFieldNoCopy(etcdEncryption, kmPath...)
+		if err != nil {
+			return err
+		}
+
+		if !hasKMS {
+			// KMS not configured, nothing to do
+			return nil
+		}
+
+		// Get vault info from provider
+		vaultName, keyName, keyVersion := vaultInfoProvider.GetVaultInfo()
+		if vaultName == nil || keyName == nil || keyVersion == nil {
+			log.V(2).Info("vault info not available yet, skipping encryption key version injection")
+			// Vault info not available yet - key creation might still be in progress
+			// Return nil to allow reconciliation to continue and retry later
+			return nil
+		}
+
+		// Check if activeKey.version is already set
+		activeKeyVersionPath := []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "activeKey", "version"}
+		existingVersion, versionExists, err := unstructured.NestedString(hcpCluster.UnstructuredContent(), activeKeyVersionPath...)
+		if err != nil {
+			return err
+		}
+
+		// If version is already set and matches, nothing to do
+		if versionExists && existingVersion == *keyVersion {
+			return nil
+		}
+
+		// If version is set but doesn't match, this is a conflict
+		if versionExists && existingVersion != *keyVersion {
+			setVersion := mutation{
+				location: hcpClusterPath + "." + strings.Join(activeKeyVersionPath, "."),
+				val:      *keyVersion,
+				reason:   fmt.Sprintf("because KeyVault encryption key version was created/updated to %s", *keyVersion),
+			}
+			return Incompatible{
+				mutation: setVersion,
+				userVal:  existingVersion,
+			}
+		}
+
+		// Set the encryption key version
+		setVersion := mutation{
+			location: hcpClusterPath + "." + strings.Join(activeKeyVersionPath, "."),
+			val:      *keyVersion,
+			reason:   fmt.Sprintf("because KeyVault encryption key was created with version %s", *keyVersion),
+		}
+		logMutation(log, setVersion)
+		return unstructured.SetNestedField(hcpCluster.UnstructuredContent(), *keyVersion, activeKeyVersionPath...)
+	}
+}
+
+func setHcpOpenShiftClusterCredentials(_ context.Context, cluster *clusterv1.Cluster, hcpClusterPath string, hcpCluster *unstructured.Unstructured, log logr.Logger) error {
+	// Check if credentials are already defined
+	_, hasUserCreds, err := unstructured.NestedMap(hcpCluster.UnstructuredContent(), "spec", "operatorSpec", "secrets", "userCredentials")
+	if err != nil {
+		return err
+	}
+	if hasUserCreds {
+		return nil
+	}
+
+	_, hasAdminCreds, err := unstructured.NestedMap(hcpCluster.UnstructuredContent(), "spec", "operatorSpec", "secrets", "adminCredentials")
+	if err != nil {
+		return err
+	}
+	if hasAdminCreds {
+		return nil
+	}
+
+	// Set default admin credentials
+	secrets := map[string]interface{}{
+		"adminCredentials": map[string]interface{}{
+			"name": cluster.Name + "-" + string(secret.Kubeconfig),
+			"key":  secret.KubeconfigDataName,
+		},
+	}
+
+	setCreds := mutation{
+		location: hcpClusterPath + ".spec.operatorSpec.secrets",
+		val:      secrets,
+		reason:   "because no userCredentials or adminCredentials are defined",
+	}
+	logMutation(log, setCreds)
+	return unstructured.SetNestedMap(hcpCluster.UnstructuredContent(), secrets, "spec", "operatorSpec", "secrets")
+}
+
+func setExternalAuthOwner(_ context.Context, externalAuth *unstructured.Unstructured, hcpClusterName, externalAuthPath string, log logr.Logger) error {
+	// Check if owner is already set
+	ownerMap, hasOwner, err := unstructured.NestedMap(externalAuth.UnstructuredContent(), "spec", "owner")
+	if err != nil {
+		return err
+	}
+
+	// If owner is already set, validate it references the HcpOpenShiftCluster
+	if hasOwner {
+		ownerName, _, _ := unstructured.NestedString(ownerMap, "name")
+		if ownerName != "" && ownerName != hcpClusterName {
+			return Incompatible{
+				mutation: mutation{
+					location: externalAuthPath + ".spec.owner.name",
+					val:      hcpClusterName,
+					reason:   "because HcpOpenShiftClustersExternalAuth must reference the HcpOpenShiftCluster",
+				},
+				userVal: ownerName,
+			}
+		}
+		// Owner already set correctly
+		return nil
+	}
+
+	// Set the owner reference
+	owner := map[string]interface{}{
+		"name": hcpClusterName,
+	}
+
+	setOwner := mutation{
+		location: externalAuthPath + ".spec.owner",
+		val:      owner,
+		reason:   fmt.Sprintf("because HcpOpenShiftClustersExternalAuth must reference HcpOpenShiftCluster %s", hcpClusterName),
+	}
+	logMutation(log, setOwner)
+	return unstructured.SetNestedMap(externalAuth.UnstructuredContent(), owner, "spec", "owner")
 }

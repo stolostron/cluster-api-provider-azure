@@ -69,9 +69,7 @@ func TestSetAROClusterDefaults(t *testing.T) {
 		{
 			name: "no ARO cluster",
 			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
+				Spec: controlv1.AROControlPlaneSpec{},
 			},
 			cluster: &clusterv1beta1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -85,9 +83,7 @@ func TestSetAROClusterDefaults(t *testing.T) {
 		{
 			name: "successful mutation",
 			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
+				Spec: controlv1.AROControlPlaneSpec{},
 			},
 			cluster: &clusterv1beta1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -109,12 +105,6 @@ func TestSetAROClusterDefaults(t *testing.T) {
 				aroClusterUnstructured(g, map[string]interface{}{}),
 			},
 			validateMutatedCluster: func(g *WithT, cluster *unstructured.Unstructured) {
-				// Check kubernetes version
-				k8sVersion, found, err := unstructured.NestedString(cluster.Object, "spec", "kubernetesVersion")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-				g.Expect(k8sVersion).To(Equal("1.25.0"))
-
 				// Check service CIDR
 				serviceCIDR, found, err := unstructured.NestedString(cluster.Object, "spec", "networkProfile", "serviceCidr")
 				g.Expect(err).NotTo(HaveOccurred())
@@ -135,31 +125,9 @@ func TestSetAROClusterDefaults(t *testing.T) {
 			},
 		},
 		{
-			name: "version conflict",
-			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
-			},
-			cluster: &clusterv1beta1.Cluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cluster",
-					Namespace: "default",
-				},
-			},
-			resources: []*unstructured.Unstructured{
-				aroClusterUnstructured(g, map[string]interface{}{
-					"kubernetesVersion": "1.24.0",
-				}),
-			},
-			expectMutationError: true,
-		},
-		{
 			name: "service CIDR conflict",
 			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
+				Spec: controlv1.AROControlPlaneSpec{},
 			},
 			cluster: &clusterv1beta1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -186,9 +154,7 @@ func TestSetAROClusterDefaults(t *testing.T) {
 		{
 			name: "pod CIDR conflict",
 			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
+				Spec: controlv1.AROControlPlaneSpec{},
 			},
 			cluster: &clusterv1beta1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -215,9 +181,7 @@ func TestSetAROClusterDefaults(t *testing.T) {
 		{
 			name: "existing user credentials",
 			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
+				Spec: controlv1.AROControlPlaneSpec{},
 			},
 			cluster: &clusterv1beta1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -249,9 +213,7 @@ func TestSetAROClusterDefaults(t *testing.T) {
 		{
 			name: "existing admin credentials",
 			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
+				Spec: controlv1.AROControlPlaneSpec{},
 			},
 			cluster: &clusterv1beta1.Cluster{
 				ObjectMeta: metav1.ObjectMeta{
@@ -307,85 +269,6 @@ func TestSetAROClusterDefaults(t *testing.T) {
 
 			if tc.validateMutatedCluster != nil && len(tc.resources) > 0 {
 				tc.validateMutatedCluster(g, tc.resources[0])
-			}
-		})
-	}
-}
-
-func TestSetAROClusterKubernetesVersion(t *testing.T) {
-	g := NewWithT(t)
-
-	testCases := []struct {
-		name               string
-		aroControlPlane    *controlv1.AROControlPlane
-		aroCluster         *unstructured.Unstructured
-		expectError        bool
-		expectedK8sVersion string
-	}{
-		{
-			name: "empty version in control plane",
-			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "",
-				},
-			},
-			aroCluster:  aroClusterUnstructured(g, map[string]interface{}{}),
-			expectError: false,
-		},
-		{
-			name: "version with v prefix",
-			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
-			},
-			aroCluster:         aroClusterUnstructured(g, map[string]interface{}{}),
-			expectError:        false,
-			expectedK8sVersion: "1.25.0",
-		},
-		{
-			name: "version without v prefix",
-			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "1.25.0",
-				},
-			},
-			aroCluster:         aroClusterUnstructured(g, map[string]interface{}{}),
-			expectError:        false,
-			expectedK8sVersion: "1.25.0",
-		},
-		{
-			name: "conflicting version",
-			aroControlPlane: &controlv1.AROControlPlane{
-				Spec: controlv1.AROControlPlaneSpec{
-					Version: "v1.25.0",
-				},
-			},
-			aroCluster: aroClusterUnstructured(g, map[string]interface{}{
-				"kubernetesVersion": "1.24.0",
-			}),
-			expectError: true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			err := setAROClusterKubernetesVersion(t.Context(), tc.aroControlPlane, "spec.resources[0]", tc.aroCluster)
-
-			if tc.expectError {
-				g.Expect(err).To(HaveOccurred())
-				g.Expect(err).To(BeAssignableToTypeOf(Incompatible{}))
-			} else {
-				g.Expect(err).NotTo(HaveOccurred())
-
-				if tc.expectedK8sVersion != "" {
-					k8sVersion, found, err := unstructured.NestedString(tc.aroCluster.Object, "spec", "kubernetesVersion")
-					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(found).To(BeTrue())
-					g.Expect(k8sVersion).To(Equal(tc.expectedK8sVersion))
-				}
 			}
 		})
 	}

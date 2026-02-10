@@ -17,88 +17,35 @@ limitations under the License.
 package v1beta2
 
 import (
-	"fmt"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
-)
-
-// VersionGateAckType specifies the version gate acknowledgment.
-type VersionGateAckType string
-
-const (
-	// Acknowledge if acknowledgment is required and proceed with the upgrade.
-	Acknowledge VersionGateAckType = "Acknowledge"
-
-	// WaitForAcknowledge if acknowledgment is required, wait not to proceed with the upgrade.
-	WaitForAcknowledge VersionGateAckType = "WaitForAcknowledge"
-
-	// AlwaysAcknowledge always acknowledg if required and proceed with the upgrade.
-	AlwaysAcknowledge VersionGateAckType = "AlwaysAcknowledge"
 )
 
 // AROControlPlaneSpec defines the desired state of AROControlPlane.
 type AROControlPlaneSpec struct { //nolint: maligned
-	// Cluster name must be a valid DNS-1035 label, so it must consist of lower case alphanumeric
-	// characters or '-', start with an alphabetic character, end with an alphanumeric character,
-	// and have a maximum length of 54 characters.
+	// Resources are embedded ASO resources to be managed by this AROControlPlane.
+	// This allows you to define the full infrastructure including HcpOpenShiftCluster and
+	// HcpOpenShiftClustersExternalAuth resources directly using ASO types.
 	//
-	// +immutable
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="aroClusterName is immutable"
-	// +kubebuilder:validation:MaxLength:=54
-	// +kubebuilder:validation:Pattern:=`^[a-z]([-a-z0-9]*[a-z0-9])?$`
-	AroClusterName string `json:"aroClusterName"`
-
-	// AROPlatformProfileControlPlane represents the Azure platform configuration.
-	Platform AROPlatformProfileControlPlane `json:"platform,omitempty"`
-
-	// Visibility represents the visibility of an API endpoint. Allowed values are public and private; default is public.
-	Visibility string `json:"visibility,omitempty"`
-
-	// Network config for the ARO HCP cluster.
+	// All cluster configuration (version, domain prefix, channel group, etc.) should be
+	// defined in the HcpOpenShiftCluster resource within this field.
+	//
 	// +optional
-	Network *NetworkSpec `json:"network,omitempty"`
-
-	// DomainPrefix is an optional prefix added to the cluster's domain name. It will be used
-	// when generating a sub-domain for the cluster on the openshiftapps domain. It must be a valid DNS-1035 label
-	// consisting of lower case alphanumeric characters or '-', start with an alphabetic character,
-	// end with an alphanumeric character, and have a maximum length of 15 characters.
-	//
-	// +immutable
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="domainPrefix is immutable"
-	// +kubebuilder:validation:MaxLength:=15
-	// +kubebuilder:validation:Pattern:=`^[a-z]([-a-z0-9]*[a-z0-9])?$`
-	// +optional
-	DomainPrefix string `json:"domainPrefix,omitempty"`
-
-	// OpenShift semantic version, for example "4.14.5".
-	Version string `json:"version"`
-
-	// OpenShift version channel group; default is stable.
-	//
-	// +kubebuilder:validation:Enum=stable;candidate;nightly;fast;eus
-	// +kubebuilder:default=stable
-	ChannelGroup v1beta2.ChannelGroupType `json:"channelGroup"`
-
-	// VersionGate requires acknowledgment when upgrading ARO-HCP y-stream versions (e.g., from 4.15 to 4.16).
-	// Default is WaitForAcknowledge.
-	// WaitForAcknowledge: If acknowledgment is required, the upgrade will not proceed until VersionGate is set to Acknowledge or AlwaysAcknowledge.
-	// Acknowledge: If acknowledgment is required, apply it for the upgrade. After upgrade is done set the version gate to WaitForAcknowledge.
-	// AlwaysAcknowledge: If acknowledgment is required, apply it and proceed with the upgrade.
-	//
-	// +kubebuilder:validation:Enum=Acknowledge;WaitForAcknowledge;AlwaysAcknowledge
-	// +kubebuilder:default=WaitForAcknowledge
-	VersionGate VersionGateAckType `json:"versionGate"`
+	Resources []runtime.RawExtension `json:"resources,omitempty"`
 
 	// IdentityRef is a reference to an identity to be used when reconciling the aro control plane.
 	// If no identity is specified, the default identity for this controller will be used.
+	//
+	// +optional
 	IdentityRef *corev1.ObjectReference `json:"identityRef,omitempty"`
 
 	// SubscriptionID is the GUID of the Azure subscription that owns this cluster.
+	// Required for Azure API authentication and ARM resource ID construction.
+	//
 	// +optional
 	SubscriptionID string `json:"subscriptionID,omitempty"`
 
@@ -121,144 +68,6 @@ type AROControlPlaneSpec struct { //nolint: maligned
 	// [ASO docs]: https://azure.github.io/azure-service-operator/guide/aso-controller-settings-options/
 	// +optional
 	AzureEnvironment string `json:"azureEnvironment,omitempty"`
-
-	// AdditionalTags are user-defined tags to be added on the AWS resources associated with the control plane.
-	// +optional
-	AdditionalTags infrav1.Tags `json:"additionalTags,omitempty"`
-
-	// EnableExternalAuthProviders enables external authentication configuration for the cluster.
-	//
-	// +kubebuilder:default=false
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="enableExternalAuthProviders is immutable"
-	// +optional
-	EnableExternalAuthProviders bool `json:"enableExternalAuthProviders,omitempty"`
-
-	// ExternalAuthProviders are external OIDC identity providers that can issue tokens for this cluster.
-	// Can only be set if "enableExternalAuthProviders" is set to "True".
-	//
-	// At most one provider can be configured.
-	//
-	// +listType=map
-	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=1
-	ExternalAuthProviders []ExternalAuthProvider `json:"externalAuthProviders,omitempty"`
-}
-
-// AROPlatformProfileControlPlane represents the Azure platform configuration.
-type AROPlatformProfileControlPlane struct {
-	// Location should be valid Azure location ex; centralus
-	Location string `json:"location,omitempty"`
-
-	// Resource group name where the ARO-hcp will be attached to it.
-	ResourceGroup string `json:"resourceGroup,omitempty"`
-
-	// ResourceGroupRef is the name that is used to create the ResourceGroup CR. The ResourceGroupRef must be in the same namespace as the AROControlPlane and cannot be set with ResourceGroup.
-	ResourceGroupRef string `json:"resourceGroupRef,omitempty"`
-
-	// Azure subnet id
-	Subnet string `json:"subnet,omitempty"`
-
-	// SubnetRef is the name that is used to create the VirtualNetworksSubnet CR. The SubnetRef must be in the same namespace as the AROControlPlane and cannot be set with Subnet.
-	SubnetRef string `json:"subnetRef,omitempty"`
-
-	// OutboundType represents a routing strategy to provide egress to the Internet. Allowed value is loadBalancer
-	OutboundType string `json:"outboundType,omitempty"`
-
-	// Azure Network Security Group ID
-	NetworkSecurityGroupID string `json:"networkSecurityGroupId,omitempty"`
-
-	// Azure KeyVault id
-	KeyVault string `json:"keyVault,omitempty"`
-
-	// ManagedIdentities Azure managed identities for ARO HCP.
-	ManagedIdentities ManagedIdentities `json:"managedIdentities,omitempty"`
-}
-
-// ManagedIdentities represents managed identities for the Azure platform configuration.
-type ManagedIdentities struct {
-	// CreateAROHCPManagedIdentities is used to create the required ARO-HCP managed identities if not provided.
-	// It will create UserAssignedIdentity CR for each required managed identity. Default is false.
-	CreateAROHCPManagedIdentities bool `json:"createAROHCPManagedIdentities,omitempty"`
-
-	// ControlPlaneOperators Ref to Microsoft.ManagedIdentity/userAssignedIdentities
-	ControlPlaneOperators *ControlPlaneOperators `json:"controlPlaneOperators,omitempty"`
-
-	// DataPlaneOperators ref to Microsoft.ManagedIdentity/userAssignedIdentities
-	DataPlaneOperators *DataPlaneOperators `json:"dataPlaneOperators,omitempty"`
-
-	// ServiceManagedIdentity ref to Microsoft.ManagedIdentity/userAssignedIdentities
-	ServiceManagedIdentity string `json:"serviceManagedIdentity,omitempty"`
-}
-
-// ControlPlaneOperators represents managed identities for the ControlPlane.
-type ControlPlaneOperators struct {
-	// ControlPlaneManagedIdentities "control-plane" Microsoft.ManagedIdentity/userAssignedIdentities
-	ControlPlaneManagedIdentities string `json:"controlPlaneOperatorsManagedIdentities,omitempty"`
-
-	// ClusterAPIAzureManagedIdentities "cluster-api-azure" Microsoft.ManagedIdentity/userAssignedIdentities
-	ClusterAPIAzureManagedIdentities string `json:"clusterApiAzureManagedIdentities,omitempty"`
-
-	// CloudControllerManagerManagedIdentities "cloud-controller-manager" Microsoft.ManagedIdentity/userAssignedIdentities
-	CloudControllerManagerManagedIdentities string `json:"cloudControllerManager,omitempty"`
-
-	// IngressManagedIdentities "ingress" Microsoft.ManagedIdentity/userAssignedIdentities
-	IngressManagedIdentities string `json:"ingressManagedIdentities,omitempty"`
-
-	// DiskCsiDriverManagedIdentities "disk-csi-driver" Microsoft.ManagedIdentity/userAssignedIdentities
-	DiskCsiDriverManagedIdentities string `json:"diskCsiDriverManagedIdentities,omitempty"`
-
-	// FileCsiDriverManagedIdentities "file-csi-driver" Microsoft.ManagedIdentity/userAssignedIdentities
-	FileCsiDriverManagedIdentities string `json:"fileCsiDriverManagedIdentities,omitempty"`
-
-	// ImageRegistryManagedIdentities "image-registry" Microsoft.ManagedIdentity/userAssignedIdentities
-	ImageRegistryManagedIdentities string `json:"imageRegistryManagedIdentities,omitempty"`
-
-	// CloudNetworkConfigManagedIdentities "cloud-network-config" Microsoft.ManagedIdentity/userAssignedIdentities
-	CloudNetworkConfigManagedIdentities string `json:"cloudNetworkConfigManagedIdentities,omitempty"`
-
-	// KmsManagedIdentities "kms" Microsoft.ManagedIdentity/userAssignedIdentities
-	KmsManagedIdentities string `json:"kmsManagedIdentities,omitempty"`
-}
-
-// DataPlaneOperators represents managed identities for the DataPlane.
-type DataPlaneOperators struct {
-	// DiskCsiDriverManagedIdentities "disk-csi-driver" Microsoft.ManagedIdentity/userAssignedIdentities
-	DiskCsiDriverManagedIdentities string `json:"diskCsiDriverManagedIdentities,omitempty"`
-
-	// FileCsiDriverManagedIdentities "file-csi-driver" Microsoft.ManagedIdentity/userAssignedIdentities
-	FileCsiDriverManagedIdentities string `json:"fileCsiDriverManagedIdentities,omitempty"`
-
-	// ImageRegistryManagedIdentities "image-registry" Microsoft.ManagedIdentity/userAssignedIdentities
-	ImageRegistryManagedIdentities string `json:"imageRegistryManagedIdentities,omitempty"`
-}
-
-// NetworkSpec for ARO-HCP.
-type NetworkSpec struct {
-	// IP addresses block used by OpenShift while installing the cluster, for example "10.0.0.0/16".
-	// +kubebuilder:validation:Format=cidr
-	// +optional
-	MachineCIDR string `json:"machineCIDR,omitempty"`
-
-	// IP address block from which to assign pod IP addresses, for example `10.128.0.0/14`.
-	// +kubebuilder:validation:Format=cidr
-	// +optional
-	PodCIDR string `json:"podCIDR,omitempty"`
-
-	// IP address block from which to assign service IP addresses, for example `172.30.0.0/16`.
-	// +kubebuilder:validation:Format=cidr
-	// +optional
-	ServiceCIDR string `json:"serviceCIDR,omitempty"`
-
-	// Network host prefix which is defaulted to `23` if not specified.
-	// +kubebuilder:default=23
-	// +optional
-	HostPrefix int `json:"hostPrefix,omitempty"`
-
-	// The CNI network type; default is OVNKubernetes.
-	// +kubebuilder:validation:Enum=OVNKubernetes;Other
-	// +kubebuilder:default=OVNKubernetes
-	// +optional
-	NetworkType string `json:"networkType,omitempty"`
 }
 
 // AROControlPlaneStatus defines the observed state of AROControlPlane.
@@ -297,6 +106,11 @@ type AROControlPlaneStatus struct {
 
 	// Available upgrades for the ARO hosted control plane.
 	AvailableUpgrades []string `json:"availableUpgrades,omitempty"`
+
+	// Resources represents the status of ASO resources managed by this AROControlPlane.
+	// This is populated when using the Resources field in the spec.
+	//+optional
+	Resources []infrav1.ResourceStatus `json:"resources,omitempty"`
 
 	// LongRunningOperationStates saves the state for ARO long-running operations so they can be continued on the
 	// next reconciliation loop.
@@ -366,6 +180,9 @@ const (
 
 	// ExternalAuthReadyCondition reports on the successful configuration of external authentication providers.
 	ExternalAuthReadyCondition clusterv1.ConditionType = "ExternalAuthReady"
+
+	// EncryptionKeyReadyCondition reports on the status of the encryption key for ETCD data encryption.
+	EncryptionKeyReadyCondition clusterv1.ConditionType = "EncryptionKeyReady"
 )
 
 // +kubebuilder:object:root=true
@@ -387,10 +204,14 @@ func (c *AROControlPlane) SetConditions(conditions []metav1.Condition) {
 	c.Status.Conditions = conditions
 }
 
-// NodeResourceGroup returns the node resource group name for the ARO control plane.
-func (c *AROControlPlane) NodeResourceGroup() string {
-	nodeResourceGroup := fmt.Sprintf("capz_node_%s_%s_rg", c.Spec.AroClusterName, c.Spec.Platform.ResourceGroup)
-	return nodeResourceGroup
+// GetResourceStatuses returns the status of resources.
+func (c *AROControlPlane) GetResourceStatuses() []infrav1.ResourceStatus {
+	return c.Status.Resources
+}
+
+// SetResourceStatuses sets the status of resources.
+func (c *AROControlPlane) SetResourceStatuses(r []infrav1.ResourceStatus) {
+	c.Status.Resources = r
 }
 
 func init() {

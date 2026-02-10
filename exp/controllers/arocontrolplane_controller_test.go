@@ -137,14 +137,31 @@ func createControlPlane(name, namespace string, deletionTimestamp *metav1.Time, 
 			Finalizers:        finalizers,
 		},
 		Spec: cplane.AROControlPlaneSpec{
-			AroClusterName:   "test-aro-cluster",
 			SubscriptionID:   "12345678-1234-1234-1234-123456789012",
 			AzureEnvironment: "AzurePublicCloud",
-			Platform: cplane.AROPlatformProfileControlPlane{
-				Location:               "eastus",
-				ResourceGroup:          "test-rg",
-				Subnet:                 "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
-				NetworkSecurityGroupID: "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/networkSecurityGroups/test-nsg",
+			Resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"kind": "OpenShiftCluster",
+						"metadata": {
+							"name": "test-aro-cluster"
+						},
+						"spec": {
+							"location": "eastus",
+							"properties": {
+								"clusterProfile": {
+									"version": "4.14.0"
+								},
+								"masterProfile": {
+									"vmSize": "Standard_D8s_v3",
+									"subnetId": "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
+									"encryptionAtHost": "Disabled"
+								}
+							}
+						}
+					}`),
+				},
 			},
 			IdentityRef: &corev1.ObjectReference{
 				Name:      "test-identity",
@@ -345,7 +362,7 @@ func TestAROControlPlaneReconciler_Reconcile(t *testing.T) {
 			expectedResult: ctrl.Result{},
 		},
 		{
-			name: "no ARO cluster name",
+			name: "no resources",
 			aroControlPlane: &cplane.AROControlPlane{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:            testControlPlaneName,
@@ -355,14 +372,9 @@ func TestAROControlPlaneReconciler_Reconcile(t *testing.T) {
 					Finalizers:      []string{cplane.AROControlPlaneFinalizer},
 				},
 				Spec: cplane.AROControlPlaneSpec{
-					// AroClusterName intentionally omitted to trigger error
+					// Resources intentionally omitted to trigger error
 					SubscriptionID:   testSubscriptionID,
 					AzureEnvironment: "AzurePublicCloud",
-					Platform: cplane.AROPlatformProfileControlPlane{
-						Location:      "eastus",
-						ResourceGroup: "test-rg",
-						Subnet:        "/subscriptions/" + testSubscriptionID + "/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
-					},
 					IdentityRef: &corev1.ObjectReference{
 						Name: "test-identity",
 						Kind: "AzureClusterIdentity",
@@ -459,7 +471,7 @@ func TestAROControlPlaneReconciler_clusterToAROControlPlane(t *testing.T) {
 				},
 				Spec: clusterv1.ClusterSpec{
 					ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
-						APIGroup: infrav2exp.GroupVersion.Group,
+						APIGroup: cplane.GroupVersion.Group,
 						Kind:     cplane.AROControlPlaneKind,
 						Name:     "test-cp",
 					},
@@ -525,7 +537,7 @@ func TestAROControlPlaneReconciler_aroMachinePoolToAROControlPlane(t *testing.T)
 		},
 		Spec: clusterv1.ClusterSpec{
 			ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
-				APIGroup: infrav2exp.GroupVersion.Group,
+				APIGroup: cplane.GroupVersion.Group,
 				Kind:     cplane.AROControlPlaneKind,
 				Name:     "test-cp",
 			},
@@ -609,11 +621,31 @@ func TestAROControlPlaneReconciler_reconcileDelete(t *testing.T) {
 					Finalizers:        []string{cplane.AROControlPlaneFinalizer},
 				},
 				Spec: cplane.AROControlPlaneSpec{
-					AroClusterName:   "test-aro-cluster",
 					SubscriptionID:   testSubscriptionID,
 					AzureEnvironment: "AzurePublicCloud",
-					Platform: cplane.AROPlatformProfileControlPlane{
-						Subnet: "/subscriptions/" + testSubscriptionID + "/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
+					Resources: []runtime.RawExtension{
+						{
+							Raw: []byte(`{
+								"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+								"kind": "OpenShiftCluster",
+								"metadata": {
+									"name": "test-aro-cluster"
+								},
+								"spec": {
+									"location": "eastus",
+									"properties": {
+										"clusterProfile": {
+											"version": "4.14.0"
+										},
+										"masterProfile": {
+											"vmSize": "Standard_D8s_v3",
+											"subnetId": "/subscriptions/` + testSubscriptionID + `/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
+											"encryptionAtHost": "Disabled"
+										}
+									}
+								}
+							}`),
+						},
 					},
 					IdentityRef: &corev1.ObjectReference{
 						Name: "test-identity",
@@ -643,11 +675,31 @@ func TestAROControlPlaneReconciler_reconcileDelete(t *testing.T) {
 					Finalizers:        []string{cplane.AROControlPlaneFinalizer},
 				},
 				Spec: cplane.AROControlPlaneSpec{
-					AroClusterName:   "test-aro-cluster",
 					SubscriptionID:   testSubscriptionID,
 					AzureEnvironment: "AzurePublicCloud",
-					Platform: cplane.AROPlatformProfileControlPlane{
-						Subnet: "/subscriptions/" + testSubscriptionID + "/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
+					Resources: []runtime.RawExtension{
+						{
+							Raw: []byte(`{
+								"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+								"kind": "OpenShiftCluster",
+								"metadata": {
+									"name": "test-aro-cluster"
+								},
+								"spec": {
+									"location": "eastus",
+									"properties": {
+										"clusterProfile": {
+											"version": "4.14.0"
+										},
+										"masterProfile": {
+											"vmSize": "Standard_D8s_v3",
+											"subnetId": "/subscriptions/` + testSubscriptionID + `/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
+											"encryptionAtHost": "Disabled"
+										}
+									}
+								}
+							}`),
+						},
 					},
 					IdentityRef: &corev1.ObjectReference{
 						Name: "test-identity",
@@ -677,11 +729,31 @@ func TestAROControlPlaneReconciler_reconcileDelete(t *testing.T) {
 					Finalizers:        []string{cplane.AROControlPlaneFinalizer},
 				},
 				Spec: cplane.AROControlPlaneSpec{
-					AroClusterName:   "test-aro-cluster",
 					SubscriptionID:   testSubscriptionID,
 					AzureEnvironment: "AzurePublicCloud",
-					Platform: cplane.AROPlatformProfileControlPlane{
-						Subnet: "/subscriptions/" + testSubscriptionID + "/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
+					Resources: []runtime.RawExtension{
+						{
+							Raw: []byte(`{
+								"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+								"kind": "OpenShiftCluster",
+								"metadata": {
+									"name": "test-aro-cluster"
+								},
+								"spec": {
+									"location": "eastus",
+									"properties": {
+										"clusterProfile": {
+											"version": "4.14.0"
+										},
+										"masterProfile": {
+											"vmSize": "Standard_D8s_v3",
+											"subnetId": "/subscriptions/` + testSubscriptionID + `/resourceGroups/test-rg/providers/Microsoft.Network/virtualNetworks/test-vnet/subnets/test-subnet",
+											"encryptionAtHost": "Disabled"
+										}
+									}
+								}
+							}`),
+						},
 					},
 					IdentityRef: &corev1.ObjectReference{
 						Name: "test-identity",

@@ -24,6 +24,7 @@ import (
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -193,13 +194,7 @@ func TestAROMachinePoolReconciler_Reconcile(t *testing.T) {
 					},
 				},
 				Spec: infrav2exp.AROMachinePoolSpec{
-					NodePoolName: testMachinePoolName,
-					Version:      "4.19.0",
-					Platform: infrav2exp.AROPlatformProfileMachinePool{
-						VMSize:           "Standard_D2s_v3",
-						DiskSizeGiB:      30,
-						AvailabilityZone: "1",
-					},
+					Resources: []runtime.RawExtension{},
 				},
 			}
 
@@ -250,9 +245,12 @@ func TestAROMachinePoolReconciler_Reconcile(t *testing.T) {
 			if tc.machinePoolExists && tc.clusterExists {
 				reconciler.createAROMachinePoolService = func(aroMachinePoolScope *scope.AROMachinePoolScope, apiCallTimeout time.Duration) (*aroMachinePoolService, error) {
 					mockService := &aroMachinePoolService{
-						scope: aroMachinePoolScope,
-						agentPoolsSvc: &mockAROResourceReconciler{
-							reconcileErr: tc.reconcileErr,
+						scope:      aroMachinePoolScope,
+						kubeclient: fakeClient,
+						newResourceReconciler: func(aroMachinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
+							return &mockAROResourceReconciler{
+								reconcileErr: tc.reconcileErr,
+							}
 						},
 					}
 					return mockService, nil
@@ -389,13 +387,7 @@ func TestAROMachinePoolReconciler_reconcileDelete(t *testing.T) {
 					},
 				},
 				Spec: infrav2exp.AROMachinePoolSpec{
-					NodePoolName: testMachinePoolName,
-					Version:      "4.19.0",
-					Platform: infrav2exp.AROPlatformProfileMachinePool{
-						VMSize:           "Standard_D2s_v3",
-						DiskSizeGiB:      30,
-						AvailabilityZone: "1",
-					},
+					Resources: []runtime.RawExtension{},
 				},
 			}
 
@@ -419,9 +411,12 @@ func TestAROMachinePoolReconciler_reconcileDelete(t *testing.T) {
 
 			reconciler.createAROMachinePoolService = func(aroMachinePoolScope *scope.AROMachinePoolScope, apiCallTimeout time.Duration) (*aroMachinePoolService, error) {
 				mockService := &aroMachinePoolService{
-					scope: aroMachinePoolScope,
-					agentPoolsSvc: &mockAROResourceReconciler{
-						deleteErr: tc.deleteErr,
+					scope:      aroMachinePoolScope,
+					kubeclient: fakeClient,
+					newResourceReconciler: func(aroMachinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
+						return &mockAROResourceReconciler{
+							deleteErr: tc.deleteErr,
+						}
 					},
 				}
 				return mockService, nil
