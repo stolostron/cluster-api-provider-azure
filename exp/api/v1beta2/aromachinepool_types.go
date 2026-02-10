@@ -31,6 +31,11 @@ type AROMachinePoolSpec struct {
 	//
 	// Required. Must include HcpOpenShiftClustersNodePool resource.
 	Resources []runtime.RawExtension `json:"resources"`
+
+	// ProviderIDList are the identification IDs of machine instances provided by the provider.
+	// This field must match the provider IDs as seen on the node objects corresponding to a machine pool's machine instances.
+	// +optional
+	ProviderIDList []string `json:"providerIDList,omitempty"`
 }
 
 // AROMachinePoolStatus defines the observed state of AROMachinePool.

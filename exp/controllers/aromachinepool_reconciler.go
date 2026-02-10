@@ -19,21 +19,26 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5"
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	azprovider "sigs.k8s.io/cloud-provider-azure/pkg/provider"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/services/virtualmachines"
 	"sigs.k8s.io/cluster-api-provider-azure/controllers"
 	infrav1exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/pkg/mutators"
+	azureutil "sigs.k8s.io/cluster-api-provider-azure/util/azure"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
@@ -42,19 +47,40 @@ type (
 	aroMachinePoolService struct {
 		scope                 *scope.AROMachinePoolScope
 		kubeclient            client.Client
+		virtualMachinesSvc    NodeLister
 		newResourceReconciler func(*infrav1exp.AROMachinePool, []*unstructured.Unstructured) resourceReconciler
+	}
+
+	// NodeLister is a service interface for returning generic lists.
+	NodeLister interface {
+		List(context.Context, string) ([]armcompute.VirtualMachine, error)
 	}
 )
 
 // newAROMachinePoolService populates all the services based on input scope.
-func newAROMachinePoolService(scope *scope.AROMachinePoolScope, _ time.Duration) (*aroMachinePoolService, error) {
+func newAROMachinePoolService(scope *scope.AROMachinePoolScope, apiCallTimeout time.Duration) (*aroMachinePoolService, error) {
+	virtualMachinesAuthorizer, err := virtualMachinesAuthorizer(scope)
+	if err != nil {
+		return nil, err
+	}
+	virtualMachinesClient, err := virtualmachines.NewClient(virtualMachinesAuthorizer, apiCallTimeout)
+	if err != nil {
+		return nil, err
+	}
+
 	return &aroMachinePoolService{
-		scope:      scope,
-		kubeclient: scope.Client,
+		scope:              scope,
+		kubeclient:         scope.Client,
+		virtualMachinesSvc: virtualMachinesClient,
 		newResourceReconciler: func(machinePool *infrav1exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
 			return controllers.NewResourceReconciler(scope.Client, resources, machinePool)
 		},
 	}, nil
+}
+
+// virtualMachinesAuthorizer takes a scope and determines the authorizer for virtual machines.
+func virtualMachinesAuthorizer(scope *scope.AROMachinePoolScope) (azure.Authorizer, error) {
+	return scope, nil
 }
 
 // Reconcile reconciles all the services in a predetermined order.
@@ -161,6 +187,52 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 		s.scope.InfraMachinePool.Status.Replicas = int32(*nodePool.Status.Properties.Replicas)
 	} else if s.scope.MachinePool.Spec.Replicas != nil {
 		s.scope.InfraMachinePool.Status.Replicas = *s.scope.MachinePool.Spec.Replicas
+	}
+
+	// Populate providerIDList from actual VMs in the node resource group
+	// This is required by CAPI to match MachinePool replicas to actual nodes
+	nodeResourceGroup := s.scope.NodeResourceGroup()
+	vmList, err := s.virtualMachinesSvc.List(ctx, nodeResourceGroup)
+	if err != nil {
+		log.V(4).Info("failed to list VMs in node resource group", "nodeResourceGroup", nodeResourceGroup, "error", err)
+		// Don't fail reconciliation if we can't list VMs - the node pool may not have created VMs yet
+		// or the resource group might not exist yet during initial provisioning
+	} else {
+		// Filter VMs by name prefix matching this node pool
+		// ARO HCP VMs are named: <cluster-name>-<nodepool-name>-<random-suffix>
+		namePrefix := s.scope.ClusterName() + "-" + nodePoolName + "-"
+		var providerIDs []string
+		for _, vm := range vmList {
+			if vm.Name == nil || !strings.HasPrefix(*vm.Name, namePrefix) {
+				continue
+			}
+			if vm.ID == nil {
+				continue
+			}
+			// Transform the VM resource representation to conform to the cloud-provider-azure representation
+			// This ensures proper casing of resource group name in the provider ID
+			providerID, err := azprovider.ConvertResourceGroupNameToLower(azureutil.ProviderIDPrefix + *vm.ID)
+			if err != nil {
+				log.Error(err, "failed to parse VM ID", "vmID", *vm.ID)
+				continue
+			}
+			providerIDs = append(providerIDs, providerID)
+		}
+
+		// Set the provider IDs on the AROMachinePool
+		s.scope.SetAgentPoolProviderIDList(providerIDs)
+
+		// Update replicas count based on actual VMs if we successfully listed them
+		// This ensures the replica count matches the actual number of VMs
+		currentReplicas := int32(len(providerIDs))
+		if currentReplicas > 0 {
+			s.scope.InfraMachinePool.Status.Replicas = currentReplicas
+		}
+
+		log.V(4).Info("populated providerIDList from VMs",
+			"nodeResourceGroup", nodeResourceGroup,
+			"namePrefix", namePrefix,
+			"providerIDCount", len(providerIDs))
 	}
 
 	// Mark as ready and set condition based on HcpOpenShiftClustersNodePool status
