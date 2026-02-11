@@ -18,10 +18,14 @@ package scope
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -270,6 +274,11 @@ func (s *AROMachinePoolScope) SetAgentPoolReady(ready bool) {
 	}
 }
 
+// SetAgentPoolProviderIDList sets a list of agent pool's Azure VM IDs.
+func (s *AROMachinePoolScope) SetAgentPoolProviderIDList(providerIDs []string) {
+	s.InfraMachinePool.Spec.ProviderIDList = providerIDs
+}
+
 // Close closes the current scope persisting the control plane configuration and status.
 func (s *AROMachinePoolScope) Close(ctx context.Context) error {
 	ctx, _, done := tele.StartSpanWithLogger(ctx, "scope.AROMachinePoolScope.Close")
@@ -290,6 +299,54 @@ func (s *AROMachinePoolScope) ResourceGroup() string {
 		ControlPlane: s.ControlPlane,
 	}
 	return cpScope.ResourceGroup()
+}
+
+// NodeResourceGroup returns the resource group where ARO HCP node VMs are created.
+// For ARO HCP, node VMs are created in a managed resource group that is dynamically created
+// by the HCP service and stored in HcpOpenShiftCluster.status.platform.managedResourceGroup.
+func (s *AROMachinePoolScope) NodeResourceGroup() string {
+	ctx := context.Background()
+
+	// Find HcpOpenShiftCluster resource name from control plane resources
+	var hcpClusterName string
+	for _, rawResource := range s.ControlPlane.Spec.Resources {
+		var resource unstructured.Unstructured
+		if err := json.Unmarshal(rawResource.Raw, &resource); err != nil {
+			continue
+		}
+		if resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group &&
+			resource.GroupVersionKind().Kind == "HcpOpenShiftCluster" {
+			hcpClusterName = resource.GetName()
+			break
+		}
+	}
+
+	if hcpClusterName == "" {
+		// Fallback to cluster resource group if HCP cluster not found
+		return s.ResourceGroup()
+	}
+
+	// Get the HcpOpenShiftCluster resource to extract the managed resource group
+	hcpCluster := &asoredhatopenshiftv1.HcpOpenShiftCluster{}
+	if err := s.Client.Get(ctx, types.NamespacedName{
+		Namespace: s.ControlPlane.Namespace,
+		Name:      hcpClusterName,
+	}, hcpCluster); err != nil {
+		// Fallback to cluster resource group if we can't get the HCP cluster
+		return s.ResourceGroup()
+	}
+
+	// Extract managed resource group from HCP cluster status
+	// The path is .status.properties.platform.managedResourceGroup
+	if hcpCluster.Status.Properties != nil &&
+		hcpCluster.Status.Properties.Platform != nil &&
+		hcpCluster.Status.Properties.Platform.ManagedResourceGroup != nil &&
+		*hcpCluster.Status.Properties.Platform.ManagedResourceGroup != "" {
+		return *hcpCluster.Status.Properties.Platform.ManagedResourceGroup
+	}
+
+	// Fallback to cluster resource group if managed resource group not set yet
+	return s.ResourceGroup()
 }
 
 // ClusterName returns the cluster name.
