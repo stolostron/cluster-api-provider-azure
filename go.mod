@@ -9,7 +9,7 @@ toolchain go1.24.12
 // to versions compatible with otel/exporters/prometheus v0.59.1.
 // See: https://github.com/prometheus/common/releases/tag/v0.66.0
 // Remove this once cluster-api/test is updated to use NewTextParser().
-replace github.com/prometheus/otlptranslator => github.com/prometheus/otlptranslator v0.0.0-20250717125610-8549f4ab4f8f
+replace github.com/prometheus/otlptranslator => github.com/prometheus/otlptranslator v0.0.2
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
