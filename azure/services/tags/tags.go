@@ -19,7 +19,7 @@ package tags
 import (
 	"context"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v3"
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
 
