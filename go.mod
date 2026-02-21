@@ -36,7 +36,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
-	github.com/hashicorp/golang-lru v1.0.2
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/pkg/errors v0.9.1
