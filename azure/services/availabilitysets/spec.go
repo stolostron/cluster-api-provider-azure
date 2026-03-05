@@ -20,7 +20,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v7"
 	"github.com/pkg/errors"
 	"k8s.io/utils/ptr"
 
