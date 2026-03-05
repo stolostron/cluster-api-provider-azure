@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/pkg/errors"
 )
 
