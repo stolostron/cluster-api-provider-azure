@@ -1,8 +1,6 @@
 module sigs.k8s.io/cluster-api-provider-azure/hack/tools
 
-go 1.24.0
-
-toolchain go1.24.12
+go 1.25.0
 
 require sigs.k8s.io/cluster-api/hack/tools v0.0.0-20251125201037-d322ff6baa2f
 
@@ -18,7 +16,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
 	golang.org/x/tools/go/expect v0.1.1-deprecated // indirect
