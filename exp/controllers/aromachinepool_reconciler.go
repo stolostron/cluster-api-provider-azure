@@ -150,6 +150,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 	var provisioningState string
 	var replicas *int
 	var statusConditions []asoconditions.Condition
+	var azureName string
 
 	// Try v1api20240610preview first
 	nodePoolV1 := &asoredhatopenshiftv1.HcpOpenShiftClustersNodePool{}
@@ -162,6 +163,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 		// Found v1api20240610preview version
 		statusID = nodePoolV1.Status.Id
 		statusConditions = nodePoolV1.Status.Conditions
+		azureName = nodePoolV1.Spec.AzureName
 		if nodePoolV1.Status.Properties != nil {
 			if nodePoolV1.Status.Properties.Version != nil {
 				version = nodePoolV1.Status.Properties.Version.Id
@@ -183,6 +185,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 			// Found v1api20251223preview version
 			statusID = nodePoolV2.Status.Id
 			statusConditions = nodePoolV2.Status.Conditions
+			azureName = nodePoolV2.Spec.AzureName
 			if nodePoolV2.Status.Properties != nil {
 				if nodePoolV2.Status.Properties.Version != nil {
 					version = nodePoolV2.Status.Properties.Version.Id
@@ -193,6 +196,18 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 				replicas = nodePoolV2.Status.Properties.Replicas
 			}
 		} else {
+			// v1api20251223preview also failed
+			if apierrors.IsNotFound(err) {
+				// NodePool doesn't exist yet - set a condition and continue
+				conditions.Set(s.scope.InfraMachinePool, metav1.Condition{
+					Type:    string(infrav1exp.NodePoolReadyCondition),
+					Status:  metav1.ConditionFalse,
+					Reason:  "NodePoolNotFound",
+					Message: "HcpOpenShiftClustersNodePool resource not found",
+				})
+				return nil
+			}
+			// For other errors (including NoMatch when neither API version is available), return the error
 			return errors.Wrap(err, "failed to get HcpOpenShiftNodePool")
 		}
 	} else {
@@ -238,9 +253,16 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 			log.V(4).Info("failed to list nodes in workload cluster", "error", err)
 			// Don't fail reconciliation if we can't list nodes yet
 		} else {
+			// Determine the Azure node pool name to use for pattern matching
+			// ARO HCP uses spec.azureName (if set) when creating nodes, not the k8s resource name
+			azureNodePoolName := nodePoolName // Default to k8s resource name for backward compatibility
+			if azureName != "" {
+				azureNodePoolName = azureName
+			}
+
 			// Filter nodes by providerID pattern matching this node pool
-			// ARO HCP node names contain the node pool name: <cluster-name>-<nodepool-name>-<random-suffix>
-			nodePoolNamePattern := s.scope.ClusterName() + "-" + nodePoolName + "-"
+			// ARO HCP node names contain the node pool name: <cluster-name>-<azureName>-<random-suffix>
+			nodePoolNamePattern := s.scope.ClusterName() + "-" + azureNodePoolName + "-"
 			var providerIDs []string
 			for _, node := range nodes.Items {
 				if node.Spec.ProviderID == "" {
@@ -265,6 +287,8 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 			}
 
 			log.V(4).Info("populated providerIDList from workload cluster nodes",
+				"k8sNodePoolName", nodePoolName,
+				"azureNodePoolName", azureNodePoolName,
 				"nodePoolNamePattern", nodePoolNamePattern,
 				"providerIDCount", len(providerIDs))
 		}
