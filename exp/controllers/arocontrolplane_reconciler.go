@@ -25,6 +25,8 @@ import (
 	asoredhatopenshiftv1api2025 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20251223preview"
 	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/pkg/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/clientcmd"
@@ -516,8 +518,8 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 				version = hcpClusterV1.Status.Properties.Version.Id
 			}
 		}
-	} else if client.IgnoreNotFound(err) == nil {
-		// Not found, try v1api20251223preview
+	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+		// Not found or API version not served, try v1api20251223preview
 		hcpClusterV2 := &asoredhatopenshiftv1api2025.HcpOpenShiftCluster{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.ControlPlane.Namespace,
@@ -539,9 +541,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 					version = hcpClusterV2.Status.Properties.Version.Id
 				}
 			}
-		} else if client.IgnoreNotFound(err) != nil {
-			return errors.Wrap(err, "failed to get HcpOpenShiftCluster")
-		} else {
+		} else if apierrors.IsNotFound(err) {
 			// Not found in either version
 			conditions.Set(s.scope.ControlPlane, metav1.Condition{
 				Type:    string(cplane.HcpClusterReadyCondition),
@@ -551,9 +551,11 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 			})
 			log.V(4).Info("HcpOpenShiftCluster not found yet, skipping status extraction", "name", hcpClusterName)
 			return nil
+		} else {
+			return errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20251223preview)")
 		}
 	} else {
-		return errors.Wrap(err, "failed to get HcpOpenShiftCluster")
+		return errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20240610preview)")
 	}
 
 	// Extract status information from HcpOpenShiftCluster
@@ -961,7 +963,7 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 	// Check v1api20240610preview node pools
 	nodePoolListV1 := &asoredhatopenshiftv1.HcpOpenShiftClustersNodePoolList{}
 	if err := s.kubeclient.List(ctx, nodePoolListV1, client.InNamespace(s.scope.Namespace())); err != nil {
-		if client.IgnoreNotFound(err) != nil {
+		if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 			return nil, false, fmt.Errorf("failed to list HcpOpenShiftClustersNodePool resources (v1api20240610preview): %w", err)
 		}
 	} else {
@@ -984,7 +986,7 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 	if !hasReadyNodePool {
 		nodePoolListV2 := &asoredhatopenshiftv1api2025.HcpOpenShiftClustersNodePoolList{}
 		if err := s.kubeclient.List(ctx, nodePoolListV2, client.InNamespace(s.scope.Namespace())); err != nil {
-			if client.IgnoreNotFound(err) != nil {
+			if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 				return nil, false, fmt.Errorf("failed to list HcpOpenShiftClustersNodePool resources (v1api20251223preview): %w", err)
 			}
 		} else {
