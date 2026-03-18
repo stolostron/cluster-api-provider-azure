@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
@@ -986,7 +987,8 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 	if !hasReadyNodePool {
 		nodePoolListV2 := &asoredhatopenshiftv1api2025.HcpOpenShiftClustersNodePoolList{}
 		if err := s.kubeclient.List(ctx, nodePoolListV2, client.InNamespace(s.scope.Namespace())); err != nil {
-			if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
+			// Ignore NotFound, NoMatch, and scheme registration errors (when types not in scheme)
+			if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) && !isSchemeError(err) {
 				return nil, false, fmt.Errorf("failed to list HcpOpenShiftClustersNodePool resources (v1api20251223preview): %w", err)
 			}
 		} else {
@@ -1031,4 +1033,16 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 	}
 
 	return filtered, filteredCount > 0, nil
+}
+
+// isSchemeError checks if the error is due to a type not being registered in the scheme.
+// This happens when trying to list/get objects whose types are not added to the controller's scheme.
+func isSchemeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for common scheme error messages
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "no kind is registered for the type") ||
+		strings.Contains(errMsg, "not registered in scheme")
 }
