@@ -207,7 +207,9 @@ func (r *AROControlPlaneReconciler) aroClusterToAROControlPlane(ctx context.Cont
 	return requests
 }
 
-// hcpClusterToAROControlPlane maps ASO HcpOpenShiftCluster changes to the owning AROControlPlane.
+// Dynamic watches for encapsulated ASO resources (HcpOpenShiftCluster, HcpOpenShiftClustersNodePool, etc.)
+// are set up automatically via external.ObjectTracker in SetupWithManager.
+//
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/finalizers,verbs=update
