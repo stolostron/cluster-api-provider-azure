@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -35,6 +36,7 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
+	basecontrollers "sigs.k8s.io/cluster-api-provider-azure/controllers"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 )
@@ -86,6 +88,10 @@ func TestProviderIDListSync_AzureNameMatchesK8sName(t *testing.T) {
 
 	// Create HcpOpenShiftClustersNodePool with azureName matching k8s name
 	nodePool := &asoredhatopenshiftv1.HcpOpenShiftClustersNodePool{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "HcpOpenShiftClustersNodePool",
+			APIVersion: asoredhatopenshiftv1.GroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      nodePoolName,
 			Namespace: namespace,
@@ -148,6 +154,9 @@ func TestProviderIDListSync_AzureNameMatchesK8sName(t *testing.T) {
 		kubeclient: mgmtClient,
 		tracker:    tracker,
 		cluster:    cluster,
+		newResourceReconciler: func(machinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
+			return basecontrollers.NewResourceReconciler(mgmtClient, resources, machinePool)
+		},
 	}
 
 	// Run reconcile
@@ -207,6 +216,10 @@ func TestProviderIDListSync_AzureNameDiffersFromK8sName(t *testing.T) {
 
 	// Create HcpOpenShiftClustersNodePool with azureName different from k8s name
 	nodePool := &asoredhatopenshiftv1.HcpOpenShiftClustersNodePool{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "HcpOpenShiftClustersNodePool",
+			APIVersion: asoredhatopenshiftv1.GroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      nodePoolName,
 			Namespace: namespace,
@@ -269,6 +282,9 @@ func TestProviderIDListSync_AzureNameDiffersFromK8sName(t *testing.T) {
 		kubeclient: mgmtClient,
 		tracker:    tracker,
 		cluster:    cluster,
+		newResourceReconciler: func(machinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
+			return basecontrollers.NewResourceReconciler(mgmtClient, resources, machinePool)
+		},
 	}
 
 	// Run reconcile

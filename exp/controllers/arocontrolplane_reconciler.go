@@ -1014,15 +1014,29 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 		return resources, false, nil
 	}
 
-	// Filter out ExternalAuth resources
+	// No ready node pool - check if ExternalAuth already exists in cluster
+	// If it exists, we should keep it (don't delete existing working resources)
+	// Only filter it out if it doesn't exist yet (prevent initial creation without node pool)
 	filtered := make([]*unstructured.Unstructured, 0, len(resources))
 	filteredCount := 0
 	for _, resource := range resources {
 		if (resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
 			resource.GroupVersionKind().Group == asoredhatopenshiftv1api2025.GroupVersion.Group) &&
 			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
-			log.V(4).Info("Filtering out ExternalAuth resource (no ready node pool)", "name", resource.GetName())
-			filteredCount++
+			// Check if this ExternalAuth resource already exists in the cluster
+			existsInCluster := s.externalAuthExists(ctx, resource.GetName())
+
+			if existsInCluster {
+				// Resource already exists - keep it even though no node pool is ready
+				// This prevents deletion of working ExternalAuth when node pools have transient failures
+				log.V(4).Info("ExternalAuth already exists, keeping it despite no ready node pool", "name", resource.GetName())
+				filtered = append(filtered, resource)
+			} else {
+				// Resource doesn't exist yet - filter it out until node pool is ready
+				// This prevents initial creation errors
+				log.V(4).Info("Filtering out ExternalAuth resource (not yet created, no ready node pool)", "name", resource.GetName())
+				filteredCount++
+			}
 			continue
 		}
 		filtered = append(filtered, resource)
@@ -1033,6 +1047,41 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 	}
 
 	return filtered, filteredCount > 0, nil
+}
+
+// externalAuthExists checks if an ExternalAuth resource with the given name already exists in the cluster.
+// This is used to determine whether to filter out ExternalAuth when no node pool is ready:
+// - If exists: keep it (don't delete working resources due to transient node pool failures).
+// - If doesn't exist: filter it out (prevent initial creation without ready node pool).
+func (s *aroControlPlaneService) externalAuthExists(ctx context.Context, name string) bool {
+	// Try v1api20240610preview first
+	externalAuthV1 := &asoredhatopenshiftv1.HcpOpenShiftClustersExternalAuth{}
+	err := s.kubeclient.Get(ctx, client.ObjectKey{
+		Namespace: s.scope.ControlPlane.Namespace,
+		Name:      name,
+	}, externalAuthV1)
+
+	if err == nil {
+		// Found v1api20240610preview version
+		return true
+	}
+
+	// Not found or error, try v1api20251223preview
+	if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
+		externalAuthV2 := &asoredhatopenshiftv1api2025.HcpOpenShiftClustersExternalAuth{}
+		err = s.kubeclient.Get(ctx, client.ObjectKey{
+			Namespace: s.scope.ControlPlane.Namespace,
+			Name:      name,
+		}, externalAuthV2)
+
+		if err == nil {
+			// Found v1api20251223preview version
+			return true
+		}
+	}
+
+	// Resource doesn't exist (or error accessing it - treat as not exists)
+	return false
 }
 
 // isSchemeError checks if the error is due to a type not being registered in the scheme.
