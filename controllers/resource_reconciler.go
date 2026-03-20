@@ -175,7 +175,9 @@ func (r *ResourceReconciler) reconcile(ctx context.Context) error {
 			toWatch := meta.AsPartialObjectMetadata(spec)
 			toWatch.APIVersion = spec.GetAPIVersion()
 			toWatch.Kind = spec.GetKind()
-			if err := r.watcher.Watch(log, toWatch, handler.EnqueueRequestForOwner(r.Client.Scheme(), r.Client.RESTMapper(), r.owner)); err != nil {
+			// Only watch for generation changes to avoid reconciliation loops
+			// Status-only updates and managed field changes should not trigger reconciliation
+			if err := r.watcher.Watch(log, toWatch, handler.EnqueueRequestForOwner(r.Client.Scheme(), r.Client.RESTMapper(), r.owner), predicate.GenerationChangedPredicate{}); err != nil {
 				return fmt.Errorf("failed to watch resource: %w", err)
 			}
 		}

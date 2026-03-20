@@ -23,11 +23,12 @@ import (
 	"fmt"
 	"time"
 
-	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20240610preview"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/controllers/external"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/patch"
@@ -85,14 +86,13 @@ func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ct
 	)
 	defer done()
 
-	r.getNewAROControlPlaneReconciler = newAROControlPlaneService
-
 	var reconciler reconcile.Reconciler = r
 	if options.Cache != nil {
 		reconciler = coalescing.NewReconciler(r, options.Cache, log)
 	}
 
-	_, err := ctrl.NewControllerManagedBy(mgr).
+	// Build controller - ASO resource watches are handled dynamically via external.ObjectTracker
+	c, err := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(options.Options).
 		For(&cplane.AROControlPlane{}, builder.WithPredicates(
 			predicate.And(
@@ -117,12 +117,6 @@ func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ct
 			&infrav2exp.AROMachinePool{},
 			handler.EnqueueRequestsFromMapFunc(r.aroMachinePoolToAROControlPlane),
 		).
-		// Watch for changes to ASO HcpOpenShiftCluster resources
-		// Reconcile on all update events (spec and status changes)
-		Watches(
-			&asoredhatopenshiftv1.HcpOpenShiftCluster{},
-			handler.EnqueueRequestsFromMapFunc(r.hcpClusterToAROControlPlane),
-		).
 		// Watch for changes to AROCluster infrastructure
 		// Reconcile when infrastructure becomes ready (ResourcesReady condition changes)
 		// We watch all update events to catch status changes (not just spec/generation changes)
@@ -135,16 +129,32 @@ func (r *AROControlPlaneReconciler) SetupWithManager(ctx context.Context, mgr ct
 				// because we need to catch status updates (ResourcesReady condition changes)
 			),
 		).
-		// Watch for changes to ASO HcpOpenShiftClustersNodePool resources
-		// Reconcile when node pools become ready so we can create ExternalAuth
-		Watches(
-			&asoredhatopenshiftv1.HcpOpenShiftClustersNodePool{},
-			handler.EnqueueRequestsFromMapFunc(r.nodePoolToAROControlPlane),
-		).
 		Owns(&corev1.Secret{}).
 		Build(reconciler)
 	if err != nil {
 		return fmt.Errorf("failed setting up the AROControlPlane controller manager: %w", err)
+	}
+
+	// Create external tracker for dynamic watches on encapsulated ASO resources
+	externalTracker := &external.ObjectTracker{
+		Cache:           mgr.GetCache(),
+		Controller:      c,
+		Scheme:          mgr.GetScheme(),
+		PredicateLogger: &log,
+	}
+
+	// Set up the reconciler factory with access to the external tracker via closure
+	r.getNewAROControlPlaneReconciler = func(scope *scope.AROControlPlaneScope) (*aroControlPlaneService, error) {
+		svc, err := newAROControlPlaneService(scope)
+		if err != nil {
+			return nil, err
+		}
+		// Override the newResourceReconciler to include the watcher
+		svc.newResourceReconciler = func(controlPlane *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
+			return controllers.NewResourceReconciler(scope.Client, resources, controlPlane,
+				controllers.WithWatcher(externalTracker))
+		}
+		return svc, nil
 	}
 
 	return nil
@@ -197,72 +207,9 @@ func (r *AROControlPlaneReconciler) aroClusterToAROControlPlane(ctx context.Cont
 	return requests
 }
 
-// hcpClusterToAROControlPlane maps ASO HcpOpenShiftCluster changes to the owning AROControlPlane.
-func (r *AROControlPlaneReconciler) hcpClusterToAROControlPlane(_ context.Context, o client.Object) []ctrl.Request {
-	hcpCluster := o.(*asoredhatopenshiftv1.HcpOpenShiftCluster)
-
-	// Find the owning AROControlPlane from owner references
-	for _, ref := range hcpCluster.OwnerReferences {
-		if ref.APIVersion == cplane.GroupVersion.Identifier() && ref.Kind == cplane.AROControlPlaneKind {
-			return []ctrl.Request{{
-				NamespacedName: client.ObjectKey{
-					Namespace: hcpCluster.Namespace,
-					Name:      ref.Name,
-				},
-			}}
-		}
-	}
-
-	return nil
-}
-
-// The ownership chain is: NodePool -> AROMachinePool -> Cluster -> AROControlPlane.
-func (r *AROControlPlaneReconciler) nodePoolToAROControlPlane(ctx context.Context, o client.Object) []ctrl.Request {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "controllers.AROControlPlaneReconciler.nodePoolToAROControlPlane")
-	defer done()
-
-	nodePool := o.(*asoredhatopenshiftv1.HcpOpenShiftClustersNodePool)
-	log.V(4).Info("NodePool watch triggered", "nodePool", nodePool.Name, "namespace", nodePool.Namespace)
-
-	// Find the owning AROMachinePool from owner references
-	var aroMachinePoolName string
-	for _, ref := range nodePool.OwnerReferences {
-		if ref.APIVersion == infrav2exp.GroupVersion.Identifier() && ref.Kind == "AROMachinePool" {
-			aroMachinePoolName = ref.Name
-			break
-		}
-	}
-
-	if aroMachinePoolName == "" {
-		log.V(4).Info("NodePool has no AROMachinePool owner, skipping", "nodePool", nodePool.Name)
-		return nil
-	}
-
-	// Get the AROMachinePool
-	aroMachinePool := &infrav2exp.AROMachinePool{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: nodePool.Namespace, Name: aroMachinePoolName}, aroMachinePool); err != nil {
-		log.V(4).Info("Failed to get AROMachinePool, skipping", "aroMachinePool", aroMachinePoolName, "error", err)
-		return nil
-	}
-
-	// Get cluster from AROMachinePool label
-	clusterName := aroMachinePool.Labels[clusterv1.ClusterNameLabel]
-	if clusterName == "" {
-		log.V(4).Info("AROMachinePool has no cluster label, skipping", "aroMachinePool", aroMachinePoolName)
-		return nil
-	}
-
-	cluster, err := util.GetClusterByName(ctx, r.Client, aroMachinePool.Namespace, clusterName)
-	if client.IgnoreNotFound(err) != nil || cluster == nil {
-		log.V(4).Info("Could not get owner cluster, skipping", "clusterName", clusterName, "error", err)
-		return nil
-	}
-
-	requests := clusterToAROControlPlane(ctx, cluster)
-	log.V(4).Info("Enqueuing AROControlPlane reconciliation from NodePool watch", "requests", len(requests))
-	return requests
-}
-
+// Dynamic watches for encapsulated ASO resources (HcpOpenShiftCluster, HcpOpenShiftClustersNodePool, etc.)
+// are set up automatically via external.ObjectTracker in SetupWithManager.
+//
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=arocontrolplanes/finalizers,verbs=update
