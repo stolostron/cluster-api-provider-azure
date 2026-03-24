@@ -151,6 +151,9 @@ const (
 
 	// NodePoolReadyCondition condition reports on the readiness of the HcpOpenShiftClustersNodePool.
 	NodePoolReadyCondition clusterv1.ConditionType = "NodePoolReady"
+
+	// ReplicasManagedByARO is the value of the CAPI replica manager annotation that maps to the ARO-HCP built-in autoscaler.
+	ReplicasManagedByARO = "aro-hcp"
 )
 
 // +kubebuilder:object:root=true

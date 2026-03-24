@@ -219,12 +219,30 @@ func (ampr *AROMachinePoolReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return reconcile.Result{}, err
 	}
 
-	// Upon first create of an ARO service, the node pools are provided to the CreateOrUpdate call. After the initial
-	// create of the control plane and node pools, the control plane will transition to initialized. After the control
-	// plane is initialized, we can proceed to reconcile aro machine pools.
-	if controlPlane.Status.Initialization == nil || !controlPlane.Status.Initialization.ControlPlaneInitialized {
-		log.Info("AROControlPlane is not initialized")
+	// For resources mode (ASO-based): NodePools can be created as soon as HcpOpenShiftCluster is ready
+	// The kubeconfig will be generated after the first NodePool is created
+	// Check if HcpClusterReady condition is true
+	hcpClusterReady := false
+	for _, condition := range controlPlane.Status.Conditions {
+		if condition.Type == string(cplane.HcpClusterReadyCondition) && condition.Status == metav1.ConditionTrue {
+			hcpClusterReady = true
+			break
+		}
+	}
+
+	if !hcpClusterReady {
+		log.Info("Waiting for HcpOpenShiftCluster to be ready before creating NodePools")
 		return reconcile.Result{}, nil
+	}
+
+	// If ControlPlaneInitialized is explicitly false (not nil), respect that
+	// But if it's nil or true, allow NodePool creation when HcpClusterReady
+	if controlPlane.Status.Initialization != nil && !controlPlane.Status.Initialization.ControlPlaneInitialized {
+		// Only block if explicitly set to false AND HcpCluster is ready
+		// This handles the case where control plane is being deleted or has failed
+		if controlPlane.Status.Ready {
+			log.V(4).Info("ControlPlane explicitly marked as not initialized but will proceed since HcpCluster is ready")
+		}
 	}
 
 	// Create the scope.

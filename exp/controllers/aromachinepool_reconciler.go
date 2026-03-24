@@ -116,7 +116,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 	resources, err := mutators.ApplyMutators(
 		ctx,
 		s.scope.InfraMachinePool.Spec.Resources,
-		mutators.SetHcpOpenShiftNodePoolDefaults(s.kubeclient, s.scope.InfraMachinePool, hcpClusterName),
+		mutators.SetHcpOpenShiftNodePoolDefaults(s.kubeclient, s.scope.InfraMachinePool, hcpClusterName, s.scope.MachinePool),
 	)
 	if err != nil {
 		return errors.Wrap(err, "failed to apply mutators")
@@ -173,8 +173,8 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 			}
 			replicas = nodePoolV1.Status.Properties.Replicas
 		}
-	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
-		// Not found or API version not served, try v1api20251223preview
+	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
+		// Not found, API version not served, or scheme error - try v1api20251223preview
 		nodePoolV2 := &asoredhatopenshiftv1api2025.HcpOpenShiftClustersNodePool{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.InfraMachinePool.Namespace,
@@ -197,7 +197,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 			}
 		} else {
 			// v1api20251223preview also failed
-			if apierrors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) || isSchemeError(err) {
 				// NodePool doesn't exist yet - set a condition and continue
 				conditions.Set(s.scope.InfraMachinePool, metav1.Condition{
 					Type:    string(infrav1exp.NodePoolReadyCondition),
@@ -284,6 +284,12 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 			currentReplicas := int32(len(providerIDs))
 			if currentReplicas > 0 {
 				s.scope.InfraMachinePool.Status.Replicas = currentReplicas
+
+				// If autoscaling is enabled, update MachinePool.Spec.Replicas to match actual count
+				// This prevents CAPI from thinking we're in a ScalingDown state when autoscaler scales up
+				if _, autoscaling := s.scope.MachinePool.Annotations[clusterv1.ReplicasManagedByAnnotation]; autoscaling {
+					s.scope.MachinePool.Spec.Replicas = &currentReplicas
+				}
 			}
 
 			log.V(4).Info("populated providerIDList from workload cluster nodes",
