@@ -519,7 +519,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 				version = hcpClusterV1.Status.Properties.Version.Id
 			}
 		}
-	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
 		// Not found or API version not served, try v1api20251223preview
 		hcpClusterV2 := &asoredhatopenshiftv1api2025.HcpOpenShiftCluster{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
@@ -542,7 +542,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 					version = hcpClusterV2.Status.Properties.Version.Id
 				}
 			}
-		} else if apierrors.IsNotFound(err) {
+		} else if apierrors.IsNotFound(err) || isSchemeError(err) {
 			// Not found in either version
 			conditions.Set(s.scope.ControlPlane, metav1.Condition{
 				Type:    string(cplane.HcpClusterReadyCondition),
