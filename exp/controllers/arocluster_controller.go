@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -296,7 +297,10 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 				Message: fmt.Sprintf("Waiting for infrastructure resources: %d/%d ready", readyResources, totalResources),
 			})
 			log.V(4).Info("waiting for resources to be ready", "ready", readyResources, "total", totalResources, "notReady", notReadyResources)
-			return ctrl.Result{}, nil
+			// Requeue as a fallback to poll for resource readiness.
+			// Dynamic watches with ASOReadyChangedPredicate provide faster updates,
+			// but RequeueAfter ensures progress even if a watch event is missed.
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 	}
 
