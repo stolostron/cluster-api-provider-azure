@@ -110,7 +110,7 @@ jobs:
         retention-days: 30
 
     - name: Create GitHub issue on vulnerability
-      if: steps.trivy-scan.outcome == 'failure' && github.event_name != 'pull_request'
+      if: steps.trivy-scan.outcome == 'failure' && github.event_name != 'pull_request' && hashFiles('trivy-results.txt') != ''
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SERVER_URL: ${{ github.server_url }}
@@ -119,12 +119,16 @@ jobs:
         BRANCH: ${{ matrix.branch }}
         SHA: ${{ github.sha }}
       run: |
-        EXISTING_ISSUE=$(gh issue list --state open --label "security" --label "trivy" --label "$BRANCH" --json number --jq ".[0].number" 2>/dev/null || echo "")
+        EXISTING_ISSUE=$(gh issue list --state open --label "security" --label "trivy" --label "$BRANCH" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
 
-        CRITICAL=$(grep -o "CRITICAL" trivy-results.txt 2>/dev/null | wc -l || echo "0")
-        HIGH=$(grep -o "HIGH" trivy-results.txt 2>/dev/null | wc -l || echo "0")
-        MEDIUM=$(grep -o "MEDIUM" trivy-results.txt 2>/dev/null | wc -l || echo "0")
-        LOW=$(grep -o "LOW" trivy-results.txt 2>/dev/null | wc -l || echo "0")
+        CRITICAL=$(grep -c "CRITICAL" trivy-results.txt 2>/dev/null) || true
+        HIGH=$(grep -c "HIGH" trivy-results.txt 2>/dev/null) || true
+        MEDIUM=$(grep -c "MEDIUM" trivy-results.txt 2>/dev/null) || true
+        LOW=$(grep -c "LOW" trivy-results.txt 2>/dev/null) || true
+        CRITICAL=${CRITICAL:-0}
+        HIGH=${HIGH:-0}
+        MEDIUM=${MEDIUM:-0}
+        LOW=${LOW:-0}
         TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
 
         if [ -n "$EXISTING_ISSUE" ]; then
