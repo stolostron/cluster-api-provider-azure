@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -561,10 +562,17 @@ func (s *AROControlPlaneScope) GetKeyVaultResourceID() string {
 
 		if unstructuredResource.GroupVersionKind().Group == aroHCPGroupName &&
 			unstructuredResource.GroupVersionKind().Kind == hcpOpenShiftClusterKindName {
-			// Extract vaultName from spec.properties.etcd.dataEncryption.customerManaged.kms.activeKey.vaultName
+			var vaultNamePath []string
+			if strings.Contains(unstructuredResource.GetAPIVersion(), "v1api20240610preview") {
+				// v1api20240610preview: vaultName is inside activeKey
+				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "activeKey", "vaultName"}
+			} else {
+				// v1api20251223preview and newer: vaultName is at kms level
+				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "vaultName"}
+			}
 			name, found, err := unstructured.NestedString(
 				unstructuredResource.UnstructuredContent(),
-				"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "activeKey", "vaultName",
+				vaultNamePath...,
 			)
 			if err == nil && found && name != "" {
 				return name

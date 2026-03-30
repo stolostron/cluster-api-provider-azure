@@ -637,11 +637,11 @@ func TestAROControlPlaneScope_KeyVaultMethods(t *testing.T) {
 		description     string
 	}{
 		{
-			name: "get vault ID from HcpOpenShiftCluster with encryption",
+			name: "get vault ID from HcpOpenShiftCluster with encryption (v1api20240610preview)",
 			resources: []runtime.RawExtension{
 				{
 					Raw: []byte(`{
-						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"apiVersion": "redhatopenshift.azure.com/v1api20240610preview",
 						"kind": "HcpOpenShiftCluster",
 						"metadata": {"name": "test-cluster"},
 						"spec": {
@@ -665,14 +665,46 @@ func TestAROControlPlaneScope_KeyVaultMethods(t *testing.T) {
 				},
 			},
 			expectedVaultID: "my-vault",
-			description:     "should extract vault name from HcpOpenShiftCluster KMS config",
+			description:     "should extract vault name from activeKey in v1api20240610preview",
+		},
+		{
+			name: "get vault ID from HcpOpenShiftCluster with encryption (v1api20251223preview)",
+			resources: []runtime.RawExtension{
+				{
+					Raw: []byte(`{
+						"apiVersion": "redhatopenshift.azure.com/v1api20251223preview",
+						"kind": "HcpOpenShiftCluster",
+						"metadata": {"name": "test-cluster"},
+						"spec": {
+							"location": "eastus",
+							"properties": {
+								"etcd": {
+									"dataEncryption": {
+										"customerManaged": {
+											"kms": {
+												"activeKey": {
+													"name": "etcd-key"
+												},
+												"vaultName": "my-vault-2025",
+												"visibility": "Public"
+											}
+										}
+									}
+								}
+							}
+						}
+					}`),
+				},
+			},
+			expectedVaultID: "my-vault-2025",
+			description:     "should extract vault name from kms level in v1api20251223preview",
 		},
 		{
 			name: "no encryption configured",
 			resources: []runtime.RawExtension{
 				{
 					Raw: []byte(`{
-						"apiVersion": "redhatopenshift.azure.com/v1api20240812preview",
+						"apiVersion": "redhatopenshift.azure.com/v1api20251223preview",
 						"kind": "HcpOpenShiftCluster",
 						"metadata": {"name": "test-cluster"},
 						"spec": {
