@@ -416,10 +416,10 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 						ptr.Deref(keyName, ""), ptr.Deref(keyVersion, ""), ptr.Deref(vaultName, "")),
 				})
 			} else {
-				// Key version not available yet - return early to avoid applying
-				// HcpOpenShiftCluster without the required activeKey.version field
+				// Key version not available yet - return transient error to requeue
+				// and avoid applying HcpOpenShiftCluster without the required activeKey.version field
 				log.V(2).Info("encryption key version not available yet, deferring HcpOpenShiftCluster apply")
-				return nil
+				return azure.WithTransientError(errors.New("encryption key version not available yet, waiting for KeyVault"), 30*time.Second)
 			}
 		}
 	}
