@@ -70,6 +70,16 @@ jobs:
         HIGH=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "HIGH")] | length' trivy-results.sarif 2>/dev/null || echo 0)
         MEDIUM=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "MEDIUM")] | length' trivy-results.sarif 2>/dev/null || echo 0)
         LOW=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "LOW")] | length' trivy-results.sarif 2>/dev/null || echo 0)
+
+        # Validate that jq produced integers (e.g., jq may return "null" on schema changes)
+        for var in CRITICAL HIGH MEDIUM LOW; do
+          val=$(eval echo "\$$var")
+          if ! echo "$val" | grep -qE '^[0-9]+$'; then
+            echo "::warning::$var count is not a valid integer ('$val'). Defaulting to 0."
+            eval "$var=0"
+          fi
+        done
+
         TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
 
         # Cross-check: if Trivy reported vulnerabilities but we counted zero,
@@ -119,6 +129,9 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
             cat trivy-results.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> **Note:** Detailed scan output is unavailable. The human-readable scan step may have failed. Check workflow logs." >> $GITHUB_STEP_SUMMARY
           fi
         fi
 
