@@ -51,6 +51,7 @@ jobs:
 
     - name: Validate scan output
       if: always()
+      id: validate-sarif
       run: |
         if [ ! -s trivy-results.sarif ]; then
           echo "::error::Trivy scan did not produce SARIF output. The scan may have failed due to infrastructure issues."
@@ -62,7 +63,7 @@ jobs:
         fi
 
     - name: Count vulnerabilities from SARIF
-      if: always()
+      if: always() && steps.validate-sarif.outcome == 'success'
       id: vuln-counts
       run: |
         CRITICAL=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "CRITICAL")] | length' trivy-results.sarif 2>/dev/null || echo 0)
@@ -70,6 +71,13 @@ jobs:
         MEDIUM=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "MEDIUM")] | length' trivy-results.sarif 2>/dev/null || echo 0)
         LOW=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "LOW")] | length' trivy-results.sarif 2>/dev/null || echo 0)
         TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+
+        # Cross-check: if Trivy reported vulnerabilities but we counted zero,
+        # the SARIF schema may have changed.
+        if [ "$TOTAL" -eq 0 ] && [ "${{ steps.trivy-scan.outcome }}" = "failure" ]; then
+          echo "::warning::Trivy reported vulnerabilities (exit code 1) but SARIF parsing found 0. The SARIF schema may have changed. Check trivy-results.sarif in the uploaded artifacts."
+        fi
+
         echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
         echo "high=$HIGH" >> "$GITHUB_OUTPUT"
         echo "medium=$MEDIUM" >> "$GITHUB_OUTPUT"
@@ -88,7 +96,11 @@ jobs:
         echo "# Trivy Security Scan Results (${{ matrix.branch }})" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
-        if [ "${TOTAL:-0}" = "0" ]; then
+        if [ -z "$TOTAL" ]; then
+          echo "## ⚠️ Vulnerability counts unavailable" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The SARIF parsing step did not produce counts. Check workflow logs for details." >> $GITHUB_STEP_SUMMARY
+        elif [ "$TOTAL" = "0" ]; then
           echo "## ✅ No vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Branch \`${{ matrix.branch }}\` passed all Trivy security checks." >> $GITHUB_STEP_SUMMARY
@@ -112,11 +124,17 @@ jobs:
 
     - name: Upload Trivy results (SARIF)
       if: always()
+      id: upload-sarif
       uses: github/codeql-action/upload-sarif@38697555549f1db7851b81482ff19f1fa5c4fedc # v4
       with:
         sarif_file: 'trivy-results.sarif'
         category: 'trivy-${{ matrix.branch }}'
       continue-on-error: true
+
+    - name: Warn on SARIF upload failure
+      if: always() && steps.upload-sarif.outcome == 'failure'
+      run: |
+        echo "::warning::Failed to upload SARIF results to the Security tab. Results are still available in the workflow artifacts."
 
     - name: Upload Trivy results (artifact)
       if: always()
