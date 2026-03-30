@@ -47,48 +47,67 @@ jobs:
         output: 'trivy-results.txt'
         severity: 'CRITICAL,HIGH,MEDIUM,LOW'
       continue-on-error: true
+      id: trivy-table
+
+    - name: Validate scan output
+      if: always()
+      run: |
+        if [ ! -s trivy-results.sarif ]; then
+          echo "::error::Trivy scan did not produce SARIF output. The scan may have failed due to infrastructure issues."
+          exit 1
+        fi
+        if ! jq empty trivy-results.sarif 2>/dev/null; then
+          echo "::error::trivy-results.sarif is not valid JSON. Scan results may be corrupted."
+          exit 1
+        fi
+
+    - name: Count vulnerabilities from SARIF
+      if: always()
+      id: vuln-counts
+      run: |
+        CRITICAL=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "CRITICAL")] | length' trivy-results.sarif 2>/dev/null || echo 0)
+        HIGH=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "HIGH")] | length' trivy-results.sarif 2>/dev/null || echo 0)
+        MEDIUM=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "MEDIUM")] | length' trivy-results.sarif 2>/dev/null || echo 0)
+        LOW=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "LOW")] | length' trivy-results.sarif 2>/dev/null || echo 0)
+        TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+        echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
+        echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+        echo "medium=$MEDIUM" >> "$GITHUB_OUTPUT"
+        echo "low=$LOW" >> "$GITHUB_OUTPUT"
+        echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
 
     - name: Generate summary
       if: always()
+      env:
+        CRITICAL: ${{ steps.vuln-counts.outputs.critical }}
+        HIGH: ${{ steps.vuln-counts.outputs.high }}
+        MEDIUM: ${{ steps.vuln-counts.outputs.medium }}
+        LOW: ${{ steps.vuln-counts.outputs.low }}
+        TOTAL: ${{ steps.vuln-counts.outputs.total }}
       run: |
         echo "# Trivy Security Scan Results (${{ matrix.branch }})" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "Comprehensive security scan for vulnerabilities, misconfigurations, secrets, and dependencies." >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
 
-        if [ -f trivy-results.txt ]; then
-          CRITICAL=$(grep -c "CRITICAL" trivy-results.txt 2>/dev/null) || true
-          HIGH=$(grep -c "HIGH" trivy-results.txt 2>/dev/null) || true
-          MEDIUM=$(grep -c "MEDIUM" trivy-results.txt 2>/dev/null) || true
-          LOW=$(grep -c "LOW" trivy-results.txt 2>/dev/null) || true
-          CRITICAL=${CRITICAL:-0}
-          HIGH=${HIGH:-0}
-          MEDIUM=${MEDIUM:-0}
-          LOW=${LOW:-0}
-
-          TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
-
-          if [ "$TOTAL" = "0" ]; then
-            echo "## ✅ No vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Branch \`${{ matrix.branch }}\` passed all Trivy security checks." >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## ❌ Vulnerabilities detected: $TOTAL" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🔴 CRITICAL | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟠 HIGH | $HIGH |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟡 MEDIUM | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟢 LOW | $LOW |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "${TOTAL:-0}" = "0" ]; then
+          echo "## ✅ No vulnerabilities found!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Branch \`${{ matrix.branch }}\` passed all Trivy security checks." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## ❌ Vulnerabilities detected: $TOTAL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 CRITICAL | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 HIGH | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 MEDIUM | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 LOW | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f trivy-results.txt ]; then
             echo "### Scan Results" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             cat trivy-results.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
-        else
-          echo "⚠️ No results file generated" >> $GITHUB_STEP_SUMMARY
         fi
 
     - name: Upload Trivy results (SARIF)
@@ -110,26 +129,23 @@ jobs:
         retention-days: 30
 
     - name: Create GitHub issue on vulnerability
-      if: steps.trivy-scan.outcome == 'failure' && github.event_name != 'pull_request' && hashFiles('trivy-results.txt') != ''
+      if: steps.trivy-scan.outcome == 'failure' && github.event_name != 'pull_request'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SERVER_URL: ${{ github.server_url }}
         REPO: ${{ github.repository }}
         RUN_ID: ${{ github.run_id }}
         BRANCH: ${{ matrix.branch }}
-        SHA: ${{ github.sha }}
+        CRITICAL: ${{ steps.vuln-counts.outputs.critical }}
+        HIGH: ${{ steps.vuln-counts.outputs.high }}
+        MEDIUM: ${{ steps.vuln-counts.outputs.medium }}
+        LOW: ${{ steps.vuln-counts.outputs.low }}
+        TOTAL: ${{ steps.vuln-counts.outputs.total }}
       run: |
-        EXISTING_ISSUE=$(gh issue list --state open --label "security" --label "trivy" --label "$BRANCH" --json number --jq '.[0].number // empty' 2>/dev/null || echo "")
-
-        CRITICAL=$(grep -c "CRITICAL" trivy-results.txt 2>/dev/null) || true
-        HIGH=$(grep -c "HIGH" trivy-results.txt 2>/dev/null) || true
-        MEDIUM=$(grep -c "MEDIUM" trivy-results.txt 2>/dev/null) || true
-        LOW=$(grep -c "LOW" trivy-results.txt 2>/dev/null) || true
-        CRITICAL=${CRITICAL:-0}
-        HIGH=${HIGH:-0}
-        MEDIUM=${MEDIUM:-0}
-        LOW=${LOW:-0}
-        TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+        EXISTING_ISSUE=$(gh issue list --state open --label "security" --label "trivy" --label "$BRANCH" --json number --jq '.[0].number // empty') || {
+          echo "::warning::Failed to check for existing issues. A duplicate issue may be created."
+          EXISTING_ISSUE=""
+        }
 
         if [ -n "$EXISTING_ISSUE" ]; then
           echo "Existing issue found: #$EXISTING_ISSUE"
@@ -165,7 +181,9 @@ jobs:
             echo "**Security Tab**: Check the [Security tab](${SERVER_URL}/${REPO}/security/code-scanning) for detailed SARIF results."
           } > comment_body.md
 
-          gh issue comment "$EXISTING_ISSUE" --body-file comment_body.md
+          gh issue comment "$EXISTING_ISSUE" --body-file comment_body.md || {
+            echo "::warning::Failed to update existing issue #$EXISTING_ISSUE with new scan results."
+          }
         else
           echo "Creating new issue..."
 
@@ -218,8 +236,9 @@ jobs:
             --label "security" \
             --label "trivy" \
             --label "$BRANCH" \
-            --body-file issue_body.md || \
-          echo "Failed to create issue, but continuing workflow"
+            --body-file issue_body.md || {
+            echo "::warning::Failed to create GitHub issue for security vulnerabilities. Check workflow permissions and GitHub API status."
+          }
         fi
 
     - name: Fail if vulnerabilities found
