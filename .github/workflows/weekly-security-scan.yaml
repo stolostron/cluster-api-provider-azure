@@ -251,7 +251,7 @@ jobs:
             echo "<summary><b>Trivy Findings</b></summary>"
             echo ""
             echo '```'
-            cat trivy-results.txt 2>/dev/null || echo "See workflow run logs for complete details"
+            cat trivy-results.txt 2>/dev/null | head -200 || echo "See workflow run logs for complete details"
             echo '```'
             echo ""
             echo "</details>"
