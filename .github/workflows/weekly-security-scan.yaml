@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: [ backplane-2.11, backplane-2.17 ]
+        branch: [backplane-2.11, backplane-2.17]
     name: Trivy (${{ matrix.branch }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -25,6 +25,10 @@ jobs:
       uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # tag=v6.0.0
       with:
         ref: ${{ matrix.branch }}
+
+    - name: Capture scanned commit
+      id: scanned-commit
+      run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
     - name: Run Trivy vulnerability scanner in repo mode
       uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # master
@@ -142,6 +146,8 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
         category: 'trivy-${{ matrix.branch }}'
+        ref: 'refs/heads/${{ matrix.branch }}'
+        sha: ${{ steps.scanned-commit.outputs.sha }}
       continue-on-error: true
 
     - name: Warn on SARIF upload failure
