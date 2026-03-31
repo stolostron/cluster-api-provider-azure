@@ -573,7 +573,7 @@ func (s *AROControlPlaneScope) GetKeyVaultResourceID() string {
 				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "vaultName"}
 			default:
 				// Unknown API version — use latest known path, but log for observability
-				s.log.V(2).Info("unknown HcpOpenShiftCluster API version for vault name extraction, using latest known path", "apiVersion", apiVersion)
+				ctrl.Log.V(2).Info("unknown HcpOpenShiftCluster API version for vault name extraction, using latest known path", "apiVersion", apiVersion)
 				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "vaultName"}
 			}
 			name, found, err := unstructured.NestedString(
