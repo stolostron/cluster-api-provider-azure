@@ -562,12 +562,18 @@ func (s *AROControlPlaneScope) GetKeyVaultResourceID() string {
 
 		if unstructuredResource.GroupVersionKind().Group == aroHCPGroupName &&
 			unstructuredResource.GroupVersionKind().Kind == hcpOpenShiftClusterKindName {
+			apiVersion := unstructuredResource.GetAPIVersion()
 			var vaultNamePath []string
-			if strings.Contains(unstructuredResource.GetAPIVersion(), "v1api20240610preview") {
+			switch {
+			case strings.HasSuffix(apiVersion, "/v1api20240610preview"):
 				// v1api20240610preview: vaultName is inside activeKey
 				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "activeKey", "vaultName"}
-			} else {
-				// v1api20251223preview and newer: vaultName is at kms level
+			case strings.HasSuffix(apiVersion, "/v1api20251223preview"):
+				// v1api20251223preview: vaultName is at kms level
+				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "vaultName"}
+			default:
+				// Unknown API version — use latest known path, but log for observability
+				s.log.V(2).Info("unknown HcpOpenShiftCluster API version for vault name extraction, using latest known path", "apiVersion", apiVersion)
 				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "vaultName"}
 			}
 			name, found, err := unstructured.NestedString(
