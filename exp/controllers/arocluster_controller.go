@@ -258,45 +258,58 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 
 	// Reconcile ASO resources if specified
 	if len(aroCluster.Spec.Resources) > 0 {
-		resources, err := mutators.ToUnstructured(ctx, aroCluster.Spec.Resources)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to convert resources to unstructured: %w", err)
-		}
-		resourceReconciler := r.newResourceReconciler(aroCluster, resources)
-		err = resourceReconciler.Reconcile(ctx)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to reconcile resources: %w", err)
-		}
-
-		// Update infrastructure ready condition based on resource status
-		totalResources := len(aroCluster.Status.Resources)
-		readyResources := 0
-		var notReadyResources []string
-		for _, status := range aroCluster.Status.Resources {
-			if status.Ready {
-				readyResources++
-			} else {
-				notReadyResources = append(notReadyResources, fmt.Sprintf("%s/%s", status.Resource.Kind, status.Resource.Name))
-			}
-		}
-
-		if readyResources == totalResources && totalResources > 0 {
-			conditions.Set(aroCluster, metav1.Condition{
-				Type:    string(infra.ResourcesReadyCondition),
-				Status:  metav1.ConditionTrue,
-				Reason:  "InfrastructureReady",
-				Message: fmt.Sprintf("All %d infrastructure resources are ready", totalResources),
-			})
-			log.V(4).Info("all resources are ready", "total", totalResources)
+		// Skip resource reconciliation if all resources are already ready and the spec
+		// hasn't changed. This prevents unnecessary server-side apply patches that cause
+		// conflicts with ASO controllers (generation bumps and etcd commit failures).
+		// Spec changes are detected by comparing the ResourcesReady condition's
+		// ObservedGeneration with the AROCluster's current Generation.
+		resourcesReadyCond := conditions.Get(aroCluster, string(infra.ResourcesReadyCondition))
+		specUnchanged := resourcesReadyCond != nil &&
+			resourcesReadyCond.Status == metav1.ConditionTrue &&
+			resourcesReadyCond.ObservedGeneration == aroCluster.Generation
+		if specUnchanged {
+			log.V(4).Info("all resources are ready and spec unchanged, skipping resource reconciliation")
 		} else {
-			conditions.Set(aroCluster, metav1.Condition{
-				Type:    string(infra.ResourcesReadyCondition),
-				Status:  metav1.ConditionFalse,
-				Reason:  "ProvisioningInfrastructure",
-				Message: fmt.Sprintf("Waiting for infrastructure resources: %d/%d ready", readyResources, totalResources),
-			})
-			log.V(4).Info("waiting for resources to be ready", "ready", readyResources, "total", totalResources, "notReady", notReadyResources)
-			return ctrl.Result{}, nil
+			resources, err := mutators.ToUnstructured(ctx, aroCluster.Spec.Resources)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to convert resources to unstructured: %w", err)
+			}
+			resourceReconciler := r.newResourceReconciler(aroCluster, resources)
+			err = resourceReconciler.Reconcile(ctx)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to reconcile resources: %w", err)
+			}
+
+			// Update infrastructure ready condition based on resource status
+			totalResources := len(aroCluster.Status.Resources)
+			readyResources := 0
+			var notReadyResources []string
+			for _, status := range aroCluster.Status.Resources {
+				if status.Ready {
+					readyResources++
+				} else {
+					notReadyResources = append(notReadyResources, fmt.Sprintf("%s/%s", status.Resource.Kind, status.Resource.Name))
+				}
+			}
+
+			if readyResources == totalResources && totalResources > 0 {
+				conditions.Set(aroCluster, metav1.Condition{
+					Type:    string(infra.ResourcesReadyCondition),
+					Status:  metav1.ConditionTrue,
+					Reason:  "InfrastructureReady",
+					Message: fmt.Sprintf("All %d infrastructure resources are ready", totalResources),
+				})
+				log.V(4).Info("all resources are ready", "total", totalResources)
+			} else {
+				conditions.Set(aroCluster, metav1.Condition{
+					Type:    string(infra.ResourcesReadyCondition),
+					Status:  metav1.ConditionFalse,
+					Reason:  "ProvisioningInfrastructure",
+					Message: fmt.Sprintf("Waiting for infrastructure resources: %d/%d ready", readyResources, totalResources),
+				})
+				log.V(4).Info("waiting for resources to be ready", "ready", readyResources, "total", totalResources, "notReady", notReadyResources)
+				return ctrl.Result{}, nil
+			}
 		}
 	}
 
