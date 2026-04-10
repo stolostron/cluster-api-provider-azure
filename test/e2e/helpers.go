@@ -457,8 +457,7 @@ func getProxiedSSHClient(controlPlaneEndpoint, hostname, port string, ioTimeout 
 	}
 
 	// Init a client connection to a control plane node via the public load balancer
-	dialer := &net.Dialer{Timeout: config.Timeout}
-	c, err := dialer.DialContext(context.Background(), "tcp", fmt.Sprintf("%s:%s", controlPlaneEndpoint, port))
+	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%s", controlPlaneEndpoint, port), config.Timeout) //nolint:noctx
 	if err != nil {
 		return nil, errors.Wrapf(err, "dialing public load balancer at %s", controlPlaneEndpoint)
 	}

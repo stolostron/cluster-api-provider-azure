@@ -443,8 +443,8 @@ func TestGetTokenCredential(t *testing.T) {
 					UserAssignedIdentityCredentialsCloudType: "public",
 				},
 			},
-			cacheExpect: func(t *testing.T, cache *mock_azure.MockCredentialCache) {
-				t.Helper()
+			cacheExpect: func(cache *mock_azure.MockCredentialCache) {
+				ctx := context.Background()
 				credsPath := "../../test/setup/credentials.json" //nolint:gosec
 				clientOptions := azcore.ClientOptions{
 					Cloud: cloud.Configuration{
