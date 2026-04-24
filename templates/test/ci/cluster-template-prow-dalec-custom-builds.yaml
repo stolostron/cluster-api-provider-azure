@@ -202,14 +202,38 @@ spec:
         declare -a BINARIES=()
         declare -A DEB_VERSIONS=()
 
-        [[ -n "${KUBEADM_REVISION}" ]] && BINARIES+=("kubeadm") && DEB_VERSIONS["kubeadm"]="$${OS_VERSION}u$${KUBEADM_REVISION}"
-        [[ -n "${KUBECTL_REVISION}" ]] && BINARIES+=("kubectl") && DEB_VERSIONS["kubectl"]="$${OS_VERSION}u$${KUBECTL_REVISION}"
-        [[ -n "${KUBELET_REVISION}" ]] && BINARIES+=("kubelet") && DEB_VERSIONS["kubelet"]="$${OS_VERSION}u$${KUBELET_REVISION}"
+        if [[ "$${ANY_REVISION_SET}" != "true" ]]; then
+          # No dalec revisions set — download official upstream binaries from
+          # dl.k8s.io to ensure binaries match the dalec container image version.
+          TARGET_VERSION="v$${VERSION}"
 
-        # Skip if nothing to replace (check first element)
-        if [[ -z "$${BINARIES[0]:-}" ]]; then
-          echo "No *_REVISION variables set. Skipping binary replacement."
-          systemctl start kubelet
+          echo "============================================================"
+          echo "DALEC IMAGE-ONLY TEST: No dalec binary revisions set."
+          echo "Downloading official upstream binaries ($${TARGET_VERSION})"
+          echo "from dl.k8s.io for version consistency with dalec images."
+          echo "============================================================"
+
+          # Download all binaries to temp files first, then replace
+          DOWNLOAD_DIR=$$(mktemp -d)
+          ALL_UPSTREAM_BINARIES=("kubeadm" "kubectl" "kubelet")
+          for BINARY in "$${ALL_UPSTREAM_BINARIES[@]}"; do
+            DL_URL="https://dl.k8s.io/release/$${TARGET_VERSION}/bin/linux/amd64/$${BINARY}"
+            echo "* downloading $${BINARY} $${TARGET_VERSION} from $${DL_URL}"
+            curl --fail --location --retry 10 --retry-delay 5 "$${DL_URL}" --output "$${DOWNLOAD_DIR}/$${BINARY}"
+            chmod +x "$${DOWNLOAD_DIR}/$${BINARY}"
+          done
+
+          # All downloads succeeded — now stop kubelet and replace binaries
+          systemctl stop kubelet
+          for BINARY in "$${ALL_UPSTREAM_BINARIES[@]}"; do
+            mv "$${DOWNLOAD_DIR}/$${BINARY}" "/usr/bin/$${BINARY}"
+          done
+          rm -rf "$${DOWNLOAD_DIR}"
+          systemctl restart kubelet
+
+          echo "kubeadm version: $(kubeadm version -o=short)"
+          echo "kubectl version: $(kubectl version --client=true)"
+          echo "kubelet version: $(kubelet --version)"
           exit 0
         fi
 
@@ -398,14 +422,38 @@ spec:
           declare -a BINARIES=()
           declare -A DEB_VERSIONS=()
 
-          [[ -n "${KUBEADM_REVISION}" ]] && BINARIES+=("kubeadm") && DEB_VERSIONS["kubeadm"]="$${OS_VERSION}u$${KUBEADM_REVISION}"
-          [[ -n "${KUBECTL_REVISION}" ]] && BINARIES+=("kubectl") && DEB_VERSIONS["kubectl"]="$${OS_VERSION}u$${KUBECTL_REVISION}"
-          [[ -n "${KUBELET_REVISION}" ]] && BINARIES+=("kubelet") && DEB_VERSIONS["kubelet"]="$${OS_VERSION}u$${KUBELET_REVISION}"
+          if [[ "$${ANY_REVISION_SET}" != "true" ]]; then
+            # No dalec revisions set — download official upstream binaries from
+            # dl.k8s.io to ensure binaries match the dalec container image version.
+            TARGET_VERSION="v$${VERSION}"
 
-          # Skip if nothing to replace (check first element)
-          if [[ -z "$${BINARIES[0]:-}" ]]; then
-            echo "No *_REVISION variables set. Skipping binary replacement."
-            systemctl start kubelet
+            echo "============================================================"
+            echo "DALEC IMAGE-ONLY TEST: No dalec binary revisions set."
+            echo "Downloading official upstream binaries ($${TARGET_VERSION})"
+            echo "from dl.k8s.io for version consistency with dalec images."
+            echo "============================================================"
+
+            # Download all binaries to temp files first, then replace
+            DOWNLOAD_DIR=$$(mktemp -d)
+            ALL_UPSTREAM_BINARIES=("kubeadm" "kubectl" "kubelet")
+            for BINARY in "$${ALL_UPSTREAM_BINARIES[@]}"; do
+              DL_URL="https://dl.k8s.io/release/$${TARGET_VERSION}/bin/linux/amd64/$${BINARY}"
+              echo "* downloading $${BINARY} $${TARGET_VERSION} from $${DL_URL}"
+              curl --fail --location --retry 10 --retry-delay 5 "$${DL_URL}" --output "$${DOWNLOAD_DIR}/$${BINARY}"
+              chmod +x "$${DOWNLOAD_DIR}/$${BINARY}"
+            done
+
+            # All downloads succeeded — now stop kubelet and replace binaries
+            systemctl stop kubelet
+            for BINARY in "$${ALL_UPSTREAM_BINARIES[@]}"; do
+              mv "$${DOWNLOAD_DIR}/$${BINARY}" "/usr/bin/$${BINARY}"
+            done
+            rm -rf "$${DOWNLOAD_DIR}"
+            systemctl restart kubelet
+
+            echo "kubeadm version: $(kubeadm version -o=short)"
+            echo "kubectl version: $(kubectl version --client=true)"
+            echo "kubelet version: $(kubelet --version)"
             exit 0
           fi
 
@@ -725,14 +773,47 @@ spec:
           declare -a BINARIES=()
           declare -A RPM_RELEASES=()
 
-          [[ -n "${KUBEADM_REVISION}" ]] && BINARIES+=("kubeadm") && RPM_RELEASES["kubeadm"]="$${KUBEADM_REVISION}.$${OS_VERSION}"
-          [[ -n "${KUBECTL_REVISION}" ]] && BINARIES+=("kubectl") && RPM_RELEASES["kubectl"]="$${KUBECTL_REVISION}.$${OS_VERSION}"
-          [[ -n "${KUBELET_REVISION}" ]] && BINARIES+=("kubelet") && RPM_RELEASES["kubelet"]="$${KUBELET_REVISION}.$${OS_VERSION}"
+          if [[ "$${ANY_REVISION_SET}" != "true" ]]; then
+            # No dalec revisions set — download official upstream binaries from
+            # dl.k8s.io to ensure binaries match the dalec container image version.
+            TARGET_VERSION="v$${VERSION}"
 
-          # Skip if nothing to replace (check first element)
-          if [[ -z "$${BINARIES[0]:-}" ]]; then
-            echo "No *_REVISION variables set. Skipping binary replacement."
-            systemctl start kubelet
+            echo "============================================================"
+            echo "DALEC IMAGE-ONLY TEST: No dalec binary revisions set."
+            echo "Downloading official upstream binaries ($${TARGET_VERSION})"
+            echo "from dl.k8s.io for version consistency with dalec images."
+            echo "============================================================"
+
+            # Download all binaries to temp files first, then replace
+            DOWNLOAD_DIR=$$(mktemp -d)
+            ALL_UPSTREAM_BINARIES=("kubeadm" "kubectl" "kubelet")
+            for BINARY in "$${ALL_UPSTREAM_BINARIES[@]}"; do
+              DL_URL="https://dl.k8s.io/release/$${TARGET_VERSION}/bin/linux/amd64/$${BINARY}"
+              echo "* downloading $${BINARY} $${TARGET_VERSION} from $${DL_URL}"
+              curl --fail --location --retry 10 --retry-delay 5 "$${DL_URL}" --output "$${DOWNLOAD_DIR}/$${BINARY}"
+              chmod +x "$${DOWNLOAD_DIR}/$${BINARY}"
+            done
+
+            # All downloads succeeded — now stop kubelet and replace binaries
+            systemctl stop kubelet
+            for BINARY in "$${ALL_UPSTREAM_BINARIES[@]}"; do
+              mv "$${DOWNLOAD_DIR}/$${BINARY}" "/usr/bin/$${BINARY}"
+            done
+            rm -rf "$${DOWNLOAD_DIR}"
+
+            # Clean up stale kubelet flags in /etc/sysconfig/kubelet.
+            # The gallery image may ship flags removed in newer k8s versions
+            # (e.g. --pod-infra-container-image was removed in v1.35).
+            if [ -f /etc/sysconfig/kubelet ]; then
+              echo "Sanitizing /etc/sysconfig/kubelet for $${TARGET_VERSION}"
+              sed -i 's/--pod-infra-container-image=[^ ]*//g' /etc/sysconfig/kubelet
+            fi
+
+            systemctl restart kubelet
+
+            echo "kubeadm version: $(kubeadm version -o=short)"
+            echo "kubectl version: $(kubectl version --client=true)"
+            echo "kubelet version: $(kubelet --version)"
             exit 0
           fi
 
