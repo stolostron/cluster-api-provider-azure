@@ -23,6 +23,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -154,6 +155,7 @@ type cleanupInput struct {
 func dumpSpecResourcesAndCleanup(ctx context.Context, input cleanupInput) {
 	defer func() {
 		input.CancelWatches()
+		redactLogs()
 	}()
 
 	Logf("Dumping all the Cluster API resources in the %q namespace", input.Namespace.Name)

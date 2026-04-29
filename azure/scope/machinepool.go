@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
@@ -357,9 +356,6 @@ func (m *MachinePoolScope) updateReplicasAndProviderIDs(ctx context.Context) err
 		}
 		providerIDs[i] = machine.Spec.ProviderID
 	}
-
-	// Sort providerIDs to ensure deterministic ordering to prevent continuous reconciliation.
-	slices.Sort(providerIDs)
 
 	m.AzureMachinePool.Status.Replicas = readyReplicas
 	m.AzureMachinePool.Spec.ProviderIDList = providerIDs
