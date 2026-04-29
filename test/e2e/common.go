@@ -80,8 +80,6 @@ const (
 	Timestamp                         = "TIMESTAMP"
 	AKSKubernetesVersion              = "AKS_KUBERNETES_VERSION"
 	AKSKubernetesVersionUpgradeFrom   = "AKS_KUBERNETES_VERSION_UPGRADE_FROM"
-	FlatcarKubernetesVersion          = "FLATCAR_KUBERNETES_VERSION"
-	FlatcarVersion                    = "FLATCAR_VERSION"
 	CalicoVersion                     = "CALICO_VERSION"
 	ManagedClustersResourceType       = "managedClusters"
 	capiImagePublisher                = "cncf-upstream"
@@ -89,7 +87,6 @@ const (
 	capiWindowsOfferName              = "capi-windows"
 	capiCommunityGallery              = "ClusterAPI-f72ceb4f-5159-4c26-a0fe-2ea738f0d019"
 	aksClusterNameSuffix              = "aks"
-	flatcarCAPICommunityGallery       = "flatcar4capi-742ef0cb-dcaa-4ecb-9cb0-bfd2e43dccc0"
 	defaultNamespace                  = "default"
 	AzureCNIv1Manifest                = "AZURE_CNI_V1_MANIFEST_PATH"
 	OldProviderUpgradeVersion         = "OLD_PROVIDER_UPGRADE_VERSION"
@@ -158,7 +155,7 @@ type cleanupInput struct {
 func dumpSpecResourcesAndCleanup(ctx context.Context, input cleanupInput) {
 	defer func() {
 		input.CancelWatches()
-		redactLogs(ctx)
+		redactLogs()
 	}()
 
 	Logf("Dumping all the Cluster API resources in the %q namespace", input.Namespace.Name)

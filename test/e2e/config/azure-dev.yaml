@@ -84,38 +84,38 @@ providers:
   - name: azure
     type: InfrastructureProvider
     versions:
-    - name: v1.20.4 # latest patch of earliest minor in supported v1beta1 releases; this is used for v1beta1 old --> v1beta1 latest clusterctl upgrades test only.
-      value: https://github.com/kubernetes-sigs/cluster-api-provider-azure/releases/download/v1.20.4/infrastructure-components.yaml
+    - name: v1.20.5 # latest patch of earliest minor in supported v1beta1 releases; this is used for v1beta1 old --> v1beta1 latest clusterctl upgrades test only.
+      value: https://github.com/kubernetes-sigs/cluster-api-provider-azure/releases/download/v1.20.5/infrastructure-components.yaml
       type: url
       contract: v1beta1
       files:
       - sourcePath: "../data/shared/v1beta1_provider/metadata.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.20.4/cluster-template-prow.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.20.5/cluster-template-prow.yaml"
         targetName: "cluster-template.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.20.4/cluster-template-prow-machine-and-machine-pool.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.20.5/cluster-template-prow-machine-and-machine-pool.yaml"
         targetName: "cluster-template-machine-and-machine-pool.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.20.4/cluster-template-aks.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.20.5/cluster-template-aks.yaml"
         targetName: "cluster-template-aks.yaml"
       replacements:
       - old: "imagePullPolicy: Always"
         new: "imagePullPolicy: IfNotPresent"
-    - name: v1.21.1 # latest patch of latest minor in supported v1beta1 releases; this is used for v1beta1 latest --> v1beta1 current clusterctl upgrades test only.
-      value: https://github.com/kubernetes-sigs/cluster-api-provider-azure/releases/download/v1.21.1/infrastructure-components.yaml
+    - name: v1.21.2 # latest patch of latest minor in supported v1beta1 releases; this is used for v1beta1 latest --> v1beta1 current clusterctl upgrades test only.
+      value: https://github.com/kubernetes-sigs/cluster-api-provider-azure/releases/download/v1.21.2/infrastructure-components.yaml
       type: url
       contract: v1beta1
       files:
       - sourcePath: "../data/shared/v1beta1_provider/metadata.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.21.1/cluster-template-prow.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.21.2/cluster-template-prow.yaml"
         targetName: "cluster-template.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.21.1/cluster-template-prow-machine-and-machine-pool.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.21.2/cluster-template-prow-machine-and-machine-pool.yaml"
         targetName: "cluster-template-machine-and-machine-pool.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.21.1/cluster-template-aks.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.21.2/cluster-template-aks.yaml"
         targetName: "cluster-template-aks.yaml"
       replacements:
       - old: "imagePullPolicy: Always"
         new: "imagePullPolicy: IfNotPresent"
     - name: v1.22.99 # "vNext"; use manifests from local source files
-      value: "${PWD}/config/default"
+      value: "${PWD}/test/e2e/data/infrastructure-azure/v1beta1/provider-components"
       contract: v1beta1
       files:
       - sourcePath: "../data/shared/v1beta1_provider/metadata.yaml"
@@ -175,8 +175,6 @@ providers:
         targetName: "cluster-template-topology.yaml"
       - sourcePath: "${PWD}/templates/test/ci/cluster-template-prow-topology-rke2.yaml"
         targetName: "cluster-template-topology-rke2.yaml"
-      - sourcePath: "${PWD}/templates/test/ci/cluster-template-prow-flatcar.yaml"
-        targetName: "cluster-template-flatcar.yaml"
       - sourcePath: "${PWD}/templates/test/ci/cluster-template-prow-flatcar-sysext.yaml"
         targetName: "cluster-template-flatcar-sysext.yaml"
       - sourcePath: "${PWD}/templates/test/ci/cluster-template-prow-edgezone.yaml"
@@ -222,8 +220,11 @@ variables:
   AKS_KUBERNETES_VERSION: "latest"
   AKS_KUBERNETES_VERSION_UPGRADE_FROM: "latest-1"
   KUBERNETES_VERSION: "${KUBERNETES_VERSION:-stable-1.33}"
-  FLATCAR_KUBERNETES_VERSION: "${FLATCAR_KUBERNETES_VERSION:-stable-1.26}"
   KUBERNETES_VERSION_API_UPGRADE_FROM: "v1.32.10"
+  # CAPZ_GALLERY_VERSION specifies the community gallery image version for the base node image.
+  # This is separate from KUBERNETES_VERSION to allow testing custom Kubernetes builds with a
+  # newer base image. Falls back to KUBERNETES_VERSION if not set.
+  CAPZ_GALLERY_VERSION: "${CAPZ_GALLERY_VERSION:-${KUBERNETES_VERSION:-stable-1.33}}"
   FLATCAR_VERSION: "${FLATCAR_VERSION:-latest}"
   ETCD_VERSION_UPGRADE_TO: "" # Use default
   COREDNS_VERSION_UPGRADE_TO: "" # Use default

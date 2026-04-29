@@ -17,6 +17,7 @@ limitations under the License.
 package scope
 
 import (
+	"context"
 	"os"
 	"reflect"
 	"testing"
@@ -215,7 +216,7 @@ func TestGetTokenCredential(t *testing.T) {
 		secret                       *corev1.Secret
 		identity                     *infrav1.AzureClusterIdentity
 		ActiveDirectoryAuthorityHost string
-		cacheExpect                  func(*testing.T, *mock_azure.MockCredentialCache)
+		cacheExpect                  func(*mock_azure.MockCredentialCache)
 	}{
 		{
 			name: "workload identity",
@@ -235,8 +236,7 @@ func TestGetTokenCredential(t *testing.T) {
 					TenantID: fakeTenantID,
 				},
 			},
-			cacheExpect: func(t *testing.T, cache *mock_azure.MockCredentialCache) {
-				t.Helper()
+			cacheExpect: func(cache *mock_azure.MockCredentialCache) {
 				cache.EXPECT().GetOrStoreWorkloadIdentity(gomock.Cond(func(opts *azidentity.WorkloadIdentityCredentialOptions) bool {
 					// ignore tracing provider
 					return opts.TenantID == fakeTenantID &&
@@ -275,8 +275,7 @@ func TestGetTokenCredential(t *testing.T) {
 				},
 			},
 			ActiveDirectoryAuthorityHost: "https://login.microsoftonline.com",
-			cacheExpect: func(t *testing.T, cache *mock_azure.MockCredentialCache) {
-				t.Helper()
+			cacheExpect: func(cache *mock_azure.MockCredentialCache) {
 				cache.EXPECT().GetOrStoreClientSecret(fakeTenantID, fakeClientID, "fooSecret", gomock.Cond(func(opts *azidentity.ClientSecretCredentialOptions) bool {
 					// ignore tracing provider
 					return reflect.DeepEqual(opts.ClientOptions.Cloud, cloud.Configuration{
@@ -321,8 +320,7 @@ func TestGetTokenCredential(t *testing.T) {
 				},
 			},
 			ActiveDirectoryAuthorityHost: "https://login.microsoftonline.com",
-			cacheExpect: func(t *testing.T, cache *mock_azure.MockCredentialCache) {
-				t.Helper()
+			cacheExpect: func(cache *mock_azure.MockCredentialCache) {
 				cache.EXPECT().GetOrStoreClientSecret(fakeTenantID, fakeClientID, "fooSecret", gomock.Cond(func(opts *azidentity.ClientSecretCredentialOptions) bool {
 					// ignore tracing provider
 					return reflect.DeepEqual(opts.ClientOptions.Cloud, cloud.Configuration{
@@ -366,8 +364,7 @@ func TestGetTokenCredential(t *testing.T) {
 					"clientSecret": []byte("fooSecret"),
 				},
 			},
-			cacheExpect: func(t *testing.T, cache *mock_azure.MockCredentialCache) {
-				t.Helper()
+			cacheExpect: func(cache *mock_azure.MockCredentialCache) {
 				cache.EXPECT().GetOrStoreClientCert(fakeTenantID, fakeClientID, []byte("fooSecret"), gomock.Nil(), gomock.Any())
 			},
 		},
@@ -390,8 +387,7 @@ func TestGetTokenCredential(t *testing.T) {
 					CertPath: testCertPath,
 				},
 			},
-			cacheExpect: func(t *testing.T, cache *mock_azure.MockCredentialCache) {
-				t.Helper()
+			cacheExpect: func(cache *mock_azure.MockCredentialCache) {
 				expectedCert, err := os.ReadFile(testCertPath)
 				if err != nil {
 					panic(err)
@@ -417,8 +413,7 @@ func TestGetTokenCredential(t *testing.T) {
 					ClientID: fakeClientID,
 				},
 			},
-			cacheExpect: func(t *testing.T, cache *mock_azure.MockCredentialCache) {
-				t.Helper()
+			cacheExpect: func(cache *mock_azure.MockCredentialCache) {
 				cache.EXPECT().GetOrStoreManagedIdentity(gomock.Cond(func(opts *azidentity.ManagedIdentityCredentialOptions) bool {
 					// ignore tracing provider
 					return opts.ID == azidentity.ClientID(fakeClientID)
@@ -457,7 +452,7 @@ func TestGetTokenCredential(t *testing.T) {
 						},
 					},
 				}
-				cache.EXPECT().GetOrStoreUserAssignedManagedIdentityCredentials(gomock.Any(), credsPath, gomock.Cond(func(opts azcore.ClientOptions) bool {
+				cache.EXPECT().GetOrStoreUserAssignedManagedIdentityCredentials(ctx, credsPath, gomock.Cond(func(opts azcore.ClientOptions) bool {
 					return opts.Cloud.ActiveDirectoryAuthorityHost == clientOptions.Cloud.ActiveDirectoryAuthorityHost &&
 						opts.Cloud.Services[cloud.ResourceManager].Audience == clientOptions.Cloud.Services[cloud.ResourceManager].Audience &&
 						opts.Cloud.Services[cloud.ResourceManager].Endpoint == clientOptions.Cloud.Services[cloud.ResourceManager].Endpoint
@@ -484,7 +479,7 @@ func TestGetTokenCredential(t *testing.T) {
 
 			mockCtrl := gomock.NewController(t)
 			cache := mock_azure.NewMockCredentialCache(mockCtrl)
-			tt.cacheExpect(t, cache)
+			tt.cacheExpect(cache)
 
 			provider, err := NewAzureCredentialsProvider(t.Context(), cache, fakeClient, tt.cluster.Spec.IdentityRef, "")
 			g.Expect(err).NotTo(HaveOccurred())

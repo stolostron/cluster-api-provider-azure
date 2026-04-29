@@ -33,10 +33,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	clusterctlconfig "sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
 	capi_e2e "sigs.k8s.io/cluster-api/test/e2e"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 )
 
 var _ = Describe("Workload cluster creation", func() {
@@ -277,6 +280,36 @@ var _ = Describe("Workload cluster creation", func() {
 				})
 			})
 
+			By("Verifying AzureMachineTemplate capacity is populated for autoscaling from zero", func() {
+				azureMachineTemplateList := &infrav1.AzureMachineTemplateList{}
+				err := bootstrapClusterProxy.GetClient().List(ctx, azureMachineTemplateList, client.InNamespace(namespace.Name))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(azureMachineTemplateList.Items).NotTo(BeEmpty(), "Expected at least one AzureMachineTemplate")
+
+				// Verify all templates have capacity populated with CPU and Memory
+				Expect(azureMachineTemplateList.Items).To(HaveEach(
+					HaveField("Status.Capacity", And(
+						HaveKey(corev1.ResourceCPU),
+						HaveKey(corev1.ResourceMemory),
+					)),
+				), "Expected all AzureMachineTemplate to have capacity populated")
+
+				// Verify all templates have nodeInfo populated with valid architecture and OS
+				Expect(azureMachineTemplateList.Items).To(HaveEach(
+					And(
+						HaveField("Status.NodeInfo", Not(BeNil())),
+						HaveField("Status.NodeInfo.Architecture", Or(
+							Equal(infrav1.ArchitectureAmd64),
+							Equal(infrav1.ArchitectureArm64),
+						)),
+						HaveField("Status.NodeInfo.OperatingSystem", Or(
+							Equal(infrav1.OperatingSystemLinux),
+							Equal(infrav1.OperatingSystemWindows),
+						)),
+					),
+				), "Expected all AzureMachineTemplate to have nodeInfo populated")
+			})
+
 			By("PASSED!")
 		})
 	})
@@ -330,44 +363,6 @@ var _ = Describe("Workload cluster creation", func() {
 			})
 
 			By("can create an accessible load balancer", func() {
-				AzureLBSpec(ctx, func() AzureLBSpecInput {
-					return AzureLBSpecInput{
-						BootstrapClusterProxy: bootstrapClusterProxy,
-						Namespace:             namespace,
-						ClusterName:           clusterName,
-						SkipCleanup:           skipCleanup,
-					}
-				})
-			})
-		})
-	})
-
-	Context("Creating a Flatcar cluster [OPTIONAL]", func() {
-		It("With Flatcar control-plane and worker nodes", func() {
-			clusterName = getClusterName(clusterNamePrefix, "flatcar")
-			clusterctl.ApplyClusterTemplateAndWait(ctx, createApplyClusterTemplateInput(
-				specName,
-				withFlavor("flatcar"),
-				withNamespace(namespace.Name),
-				withClusterName(clusterName),
-				withKubernetesVersion(e2eConfig.MustGetVariable(FlatcarKubernetesVersion)),
-				withControlPlaneMachineCount(1),
-				withWorkerMachineCount(1),
-				withControlPlaneWaiters(clusterctl.ControlPlaneWaiters{
-					WaitForControlPlaneInitialized: EnsureControlPlaneInitialized,
-				}),
-				withPostMachinesProvisioned(func() {
-					EnsureDaemonsets(ctx, func() DaemonsetsSpecInput {
-						return DaemonsetsSpecInput{
-							BootstrapClusterProxy: bootstrapClusterProxy,
-							Namespace:             namespace,
-							ClusterName:           clusterName,
-						}
-					})
-				}),
-			), result)
-
-			By("can create and access a load balancer", func() {
 				AzureLBSpec(ctx, func() AzureLBSpecInput {
 					return AzureLBSpecInput{
 						BootstrapClusterProxy: bootstrapClusterProxy,
@@ -1083,14 +1078,15 @@ var _ = Describe("Workload cluster creation", func() {
 			clusterName = getClusterName(clusterNamePrefix, "cc")
 
 			// Init rke2 CP and bootstrap providers
+			rke2Version := "v0.21.1"
 			initInput := clusterctl.InitInput{
 				// pass reference to the management cluster hosting this test
 				KubeconfigPath: bootstrapClusterProxy.GetKubeconfigPath(),
 				// pass the clusterctl config file that points to the local provider repository created for this test
 				ClusterctlConfigPath: clusterctlConfigPath,
 				// setup the desired list of providers for a single-tenant management cluster
-				BootstrapProviders:    []string{"rke2"},
-				ControlPlaneProviders: []string{"rke2"},
+				BootstrapProviders:    []string{clusterctlconfig.RKE2BootstrapProviderName + ":" + rke2Version},
+				ControlPlaneProviders: []string{clusterctlconfig.RKE2ControlPlaneProviderName + ":" + rke2Version},
 				// setup clusterctl logs folder
 				LogFolder: filepath.Join(artifactFolder, "clusters", clusterName),
 			}
