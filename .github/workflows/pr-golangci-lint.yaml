@@ -18,7 +18,7 @@ jobs:
           - ""
           - test
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # tag=v6.0.2
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # tag=v6.0.1
 
       - name: Get Go version
         id: vars
@@ -33,5 +33,5 @@ jobs:
         uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # tag=v9.2.0
         with:
           # update the version when updating golangci-lint
-          version: v2.1.2
+          version: v2.7.0
           working-directory: ${{matrix.working-directory}}

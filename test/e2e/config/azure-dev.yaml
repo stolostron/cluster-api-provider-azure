@@ -3,11 +3,11 @@ managementClusterName: capz-e2e
 images:
   - name: ${MANAGER_IMAGE}
     loadBehavior: mustLoad
-  - name: registry.k8s.io/cluster-api/cluster-api-controller:v1.11.5
+  - name: registry.k8s.io/cluster-api/cluster-api-controller:v1.11.10
     loadBehavior: tryLoad
-  - name: registry.k8s.io/cluster-api/kubeadm-bootstrap-controller:v1.11.5
+  - name: registry.k8s.io/cluster-api/kubeadm-bootstrap-controller:v1.11.10
     loadBehavior: tryLoad
-  - name: registry.k8s.io/cluster-api/kubeadm-control-plane-controller:v1.11.5
+  - name: registry.k8s.io/cluster-api/kubeadm-control-plane-controller:v1.11.10
     loadBehavior: tryLoad
   - name: registry.k8s.io/cluster-api-helm/cluster-api-helm-controller:v0.5.2
     loadBehavior: tryLoad
@@ -25,8 +25,8 @@ providers:
           new: --metrics-addr=:8080
       files:
         - sourcePath: "../data/shared/v1beta1/metadata.yaml"
-    - name: v1.11.5
-      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.5/core-components.yaml
+    - name: v1.11.10
+      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.10/core-components.yaml
       type: url
       contract: v1beta2
       files:
@@ -34,6 +34,8 @@ providers:
       replacements:
       - old: "imagePullPolicy: Always"
         new: "imagePullPolicy: IfNotPresent"
+      - old: "- --leader-elect"
+        new: "- --leader-elect\n        - --remote-connection-grace-period=3m"
 
   - name: kubeadm
     type: BootstrapProvider
@@ -47,8 +49,8 @@ providers:
           new: --metrics-addr=:8080
       files:
         - sourcePath: "../data/shared/v1beta1/metadata.yaml"
-    - name: v1.11.5
-      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.5/bootstrap-components.yaml
+    - name: v1.11.10
+      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.10/bootstrap-components.yaml
       type: url
       contract: v1beta2
       files:
@@ -69,8 +71,8 @@ providers:
           new: --metrics-addr=:8080
       files:
         - sourcePath: "../data/shared/v1beta1/metadata.yaml"
-    - name: v1.11.5
-      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.5/control-plane-components.yaml
+    - name: v1.11.10
+      value: https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.10/control-plane-components.yaml
       type: url
       contract: v1beta2
       files:
@@ -82,7 +84,22 @@ providers:
   - name: azure
     type: InfrastructureProvider
     versions:
-    - name: v1.21.2 # latest patch of earliest minor in supported v1beta1 releases; this is used for v1beta1 old --> v1beta1 latest clusterctl upgrades test only.
+    - name: v1.20.5 # latest patch of earliest minor in supported v1beta1 releases; this is used for v1beta1 old --> v1beta1 latest clusterctl upgrades test only.
+      value: https://github.com/kubernetes-sigs/cluster-api-provider-azure/releases/download/v1.20.5/infrastructure-components.yaml
+      type: url
+      contract: v1beta1
+      files:
+      - sourcePath: "../data/shared/v1beta1_provider/metadata.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.20.5/cluster-template-prow.yaml"
+        targetName: "cluster-template.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.20.5/cluster-template-prow-machine-and-machine-pool.yaml"
+        targetName: "cluster-template-machine-and-machine-pool.yaml"
+      - sourcePath: "../data/infrastructure-azure/v1.20.5/cluster-template-aks.yaml"
+        targetName: "cluster-template-aks.yaml"
+      replacements:
+      - old: "imagePullPolicy: Always"
+        new: "imagePullPolicy: IfNotPresent"
+    - name: v1.21.2 # latest patch of latest minor in supported v1beta1 releases; this is used for v1beta1 latest --> v1beta1 current clusterctl upgrades test only.
       value: https://github.com/kubernetes-sigs/cluster-api-provider-azure/releases/download/v1.21.2/infrastructure-components.yaml
       type: url
       contract: v1beta1
@@ -97,23 +114,8 @@ providers:
       replacements:
       - old: "imagePullPolicy: Always"
         new: "imagePullPolicy: IfNotPresent"
-    - name: v1.22.0 # latest patch of latest minor in supported v1beta1 releases; this is used for v1beta1 latest --> v1beta1 current clusterctl upgrades test only.
-      value: https://github.com/kubernetes-sigs/cluster-api-provider-azure/releases/download/v1.22.0/infrastructure-components.yaml
-      type: url
-      contract: v1beta1
-      files:
-      - sourcePath: "../data/shared/v1beta1_provider/metadata.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.22.0/cluster-template-prow.yaml"
-        targetName: "cluster-template.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.22.0/cluster-template-prow-machine-and-machine-pool.yaml"
-        targetName: "cluster-template-machine-and-machine-pool.yaml"
-      - sourcePath: "../data/infrastructure-azure/v1.22.0/cluster-template-aks.yaml"
-        targetName: "cluster-template-aks.yaml"
-      replacements:
-      - old: "imagePullPolicy: Always"
-        new: "imagePullPolicy: IfNotPresent"
-    - name: v1.23.99 # "vNext"; use manifests from local source files
-      value: "${PWD}/config/default"
+    - name: v1.22.99 # "vNext"; use manifests from local source files
+      value: "${PWD}/test/e2e/data/infrastructure-azure/v1beta1/provider-components"
       contract: v1beta1
       files:
       - sourcePath: "../data/shared/v1beta1_provider/metadata.yaml"
@@ -253,9 +255,9 @@ variables:
   WINDOWS_CONTAINERD_URL: "${WINDOWS_CONTAINERD_URL:-}"
   AZURE_CNI_V1_MANIFEST_PATH: "${PWD}/templates/addons/azure-cni-v1.yaml"
   OLD_CAPI_UPGRADE_VERSION: "v1.10.9"
-  LATEST_CAPI_UPGRADE_VERSION: "v1.11.5"
-  OLD_PROVIDER_UPGRADE_VERSION: "v1.21.2"
-  LATEST_PROVIDER_UPGRADE_VERSION: "v1.22.0"
+  LATEST_CAPI_UPGRADE_VERSION: "v1.11.10"
+  OLD_PROVIDER_UPGRADE_VERSION: "v1.20.5"
+  LATEST_PROVIDER_UPGRADE_VERSION: "v1.21.2"
   OLD_CAAPH_UPGRADE_VERSION: "v0.1.0-alpha.10"
   LATEST_CAAPH_UPGRADE_VERSION: "v0.5.2"
   CI_RG: "${CI_RG:-capz-ci}"
@@ -284,7 +286,8 @@ intervals:
   default/wait-service: ["15m", "10s"]
   default/wait-machine-pool-nodes: ["30m", "10s"]
   default/wait-nsg-update: ["20m", "10s"]
-  default/wait-autoscale: ["10m", "10s"]
+  default/wait-resource-versions-become-stable: ["10m", "15s"]
+  default/wait-resource-versions-remain-stable: ["5m", "5s"]
   csi-migration/wait-controlplane-upgrade: ["60m", "10s"]
   csi-migration/wait-worker-nodes: ["60m", "10s"]
   csi-migration/wait-control-plane: ["60m", "10s"]

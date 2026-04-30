@@ -21,7 +21,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
@@ -358,9 +357,6 @@ func (m *MachinePoolScope) updateReplicasAndProviderIDs(ctx context.Context) err
 		providerIDs[i] = machine.Spec.ProviderID
 	}
 
-	// Sort providerIDs to ensure deterministic ordering to prevent continuous reconciliation.
-	slices.Sort(providerIDs)
-
 	m.AzureMachinePool.Status.Replicas = readyReplicas
 	m.AzureMachinePool.Spec.ProviderIDList = providerIDs
 	return nil
@@ -692,7 +688,12 @@ func (m *MachinePoolScope) Close(ctx context.Context) error {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "scope.MachinePoolScope.Close")
 	defer done()
 
-	if m.vmssState != nil {
+	// Only sync MachinePool w/ MachinePoolMachines if the MachinePool
+	// represents an actual Azure VMSS (vmssState != nil), and if the
+	// MachinePool is not in an active state of deletion
+	// (DeletionTimestamp.IsZero()) to avoid recreating
+	// AzureMachinePoolMachines that reconcileDelete just removed.
+	if m.vmssState != nil && m.AzureMachinePool.DeletionTimestamp.IsZero() {
 		if err := m.applyAzureMachinePoolMachines(ctx); err != nil {
 			log.Error(err, "failed to apply changes to the AzureMachinePoolMachines")
 			return errors.Wrap(err, "failed to apply changes to AzureMachinePoolMachines")

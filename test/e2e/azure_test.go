@@ -31,14 +31,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterctlconfig "sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
 	capi_e2e "sigs.k8s.io/cluster-api/test/e2e"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
@@ -551,74 +549,6 @@ var _ = Describe("Workload cluster creation", func() {
 						Namespace:             namespace,
 						ClusterName:           clusterName,
 						SkipCleanup:           skipCleanup,
-					}
-				})
-			})
-
-			By("PASSED!")
-		})
-	})
-
-	Context("Creating a VMSS cluster with Windows [WINDOWS]", func() {
-		It("with a single control plane node and an AzureMachinePool with 2 Linux and 2 Windows worker nodes", func() {
-			clusterName = getClusterName(clusterNamePrefix, "vmss-win")
-
-			// Opt into using windows with prow template
-			Expect(os.Setenv("WINDOWS_WORKER_MACHINE_COUNT", "2")).To(Succeed())
-
-			clusterctl.ApplyClusterTemplateAndWait(ctx, createApplyClusterTemplateInput(
-				specName,
-				withFlavor("machine-pool-windows"),
-				withNamespace(namespace.Name),
-				withClusterName(clusterName),
-				withControlPlaneMachineCount(1),
-				withWorkerMachineCount(2),
-				withMachineDeploymentInterval(specName, ""),
-				withControlPlaneInterval(specName, "wait-control-plane"),
-				withMachinePoolInterval(specName, "wait-machine-pool-nodes"),
-				withControlPlaneWaiters(clusterctl.ControlPlaneWaiters{
-					WaitForControlPlaneInitialized: EnsureControlPlaneInitialized,
-				}),
-				withPostMachinesProvisioned(func() {
-					EnsureDaemonsets(ctx, func() DaemonsetsSpecInput {
-						return DaemonsetsSpecInput{
-							BootstrapClusterProxy: bootstrapClusterProxy,
-							Namespace:             namespace,
-							ClusterName:           clusterName,
-						}
-					})
-				}),
-			), result)
-
-			By("Verifying expected VM extensions are present on the node", func() {
-				AzureVMExtensionsSpec(ctx, func() AzureVMExtensionsSpecInput {
-					return AzureVMExtensionsSpecInput{
-						BootstrapClusterProxy: bootstrapClusterProxy,
-						Namespace:             namespace,
-						ClusterName:           clusterName,
-					}
-				})
-			})
-
-			By("Creating an accessible load balancer", func() {
-				AzureLBSpec(ctx, func() AzureLBSpecInput {
-					return AzureLBSpecInput{
-						BootstrapClusterProxy: bootstrapClusterProxy,
-						Namespace:             namespace,
-						ClusterName:           clusterName,
-						SkipCleanup:           skipCleanup,
-					}
-				})
-			})
-
-			By("Creating an accessible load balancer for windows", func() {
-				AzureLBSpec(ctx, func() AzureLBSpecInput {
-					return AzureLBSpecInput{
-						BootstrapClusterProxy: bootstrapClusterProxy,
-						Namespace:             namespace,
-						ClusterName:           clusterName,
-						SkipCleanup:           skipCleanup,
-						Windows:               true,
 					}
 				})
 			})
@@ -1162,47 +1092,6 @@ var _ = Describe("Workload cluster creation", func() {
 			}
 			clusterctl.Init(ctx, initInput)
 
-			// [clusterctl.Init] doesn't wait until the webhooks are ready to
-			// receive requests, so a "connection refused" error causing retries
-			// where some objects are already created can trigger unwanted
-			// changes to those existing objects.
-			//
-			// That retries don't work is an issue with
-			// [clusterctl.ApplyClusterTemplateAndWait]
-			// https://github.com/kubernetes-sigs/cluster-api/issues/13264
-			//
-			// If that issue is resolved then we can remove this workaround.
-			objects, err := yaml.ToUnstructured([]byte(`
-apiVersion: controlplane.cluster.x-k8s.io/v1beta1
-kind: RKE2ControlPlaneTemplate
-metadata:
-  name: dry-run
-  namespace: default
-spec:
-  template:
-    spec:
-      rolloutStrategy: {}
----
-apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
-kind: RKE2ConfigTemplate
-metadata:
-  name: dry-run
-  namespace: default
-spec:
-  template:
-    spec: {}`))
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(func() error {
-				for _, obj := range objects {
-					if err := bootstrapClusterProxy.GetClient().Create(ctx, &obj, client.DryRunAll); err != nil {
-						Logf("Webhooks not ready for %s %s: %v", obj.GetAPIVersion(), obj.GetKind(), err)
-						return err
-					}
-					Logf("Webhooks ready for %s %s", obj.GetAPIVersion(), obj.GetKind())
-				}
-				return nil
-			}, 1*time.Minute, 1*time.Second).Should(Succeed())
-
 			// Create a cluster using the cluster class created above
 			clusterctl.ApplyClusterTemplateAndWait(ctx, createApplyClusterTemplateInput(
 				specName,
@@ -1467,66 +1356,4 @@ spec:
 	})
 
 	// TODO: add a same test as above for a windows cluster
-
-	Context("Testing autoscaling from zero with Cluster Autoscaler [REQUIRED]", func() {
-		It("Scales MachineDeployment from 0 to 1+ when workload is scheduled", func() {
-			clusterName = getClusterName(clusterNamePrefix, "autoscale")
-
-			// Setup cleanup for Cluster Autoscaler ClusterRole/ClusterRoleBinding
-			additionalCleanup = func() {
-				By("Cleaning up Cluster Autoscaler ClusterRole and ClusterRoleBinding")
-				mgmtClient := bootstrapClusterProxy.GetClient()
-
-				// Delete ClusterRoles
-				clusterRoles := []string{
-					fmt.Sprintf("cluster-autoscaler-%s", clusterName),
-					fmt.Sprintf("cluster-autoscaler-management-%s", clusterName),
-				}
-
-				for _, name := range clusterRoles {
-					cr := &rbacv1.ClusterRole{}
-					cr.Name = name
-					_ = mgmtClient.Delete(ctx, cr)
-
-					crb := &rbacv1.ClusterRoleBinding{}
-					crb.Name = name
-					_ = mgmtClient.Delete(ctx, crb)
-				}
-			}
-
-			clusterctl.ApplyClusterTemplateAndWait(ctx, createApplyClusterTemplateInput(
-				specName,
-				withNamespace(namespace.Name),
-				withClusterName(clusterName),
-				withControlPlaneMachineCount(1),
-				withWorkerMachineCount(0), // No initial workers
-				withControlPlaneWaiters(clusterctl.ControlPlaneWaiters{
-					WaitForControlPlaneInitialized: EnsureControlPlaneInitialized,
-				}),
-				withPostMachinesProvisioned(func() {
-					EnsureDaemonsets(ctx, func() DaemonsetsSpecInput {
-						return DaemonsetsSpecInput{
-							BootstrapClusterProxy: bootstrapClusterProxy,
-							Namespace:             namespace,
-							ClusterName:           clusterName,
-						}
-					})
-				}),
-			), result)
-
-			By("Testing autoscaling from zero functionality", func() {
-				AutoscalingFromZeroSpec(ctx, func() AutoscalingFromZeroSpecInput {
-					return AutoscalingFromZeroSpecInput{
-						BootstrapClusterProxy: bootstrapClusterProxy,
-						Namespace:             namespace,
-						ClusterName:           clusterName,
-						Cluster:               result.Cluster,
-						WaitIntervals:         e2eConfig.GetIntervals(specName, "wait-autoscale"),
-					}
-				})
-			})
-
-			By("PASSED!")
-		})
-	})
 })
