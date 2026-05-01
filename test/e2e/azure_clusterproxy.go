@@ -190,7 +190,14 @@ func (acp *AzureClusterProxy) collectNodes(ctx context.Context, namespace string
 	workload := acp.ClusterProxy.GetWorkloadCluster(ctx, namespace, name)
 	nodes := &corev1.NodeList{}
 
-	Expect(workload.GetClient().List(ctx, nodes)).To(Succeed())
+	// Failing to collect node logs should not cause the test to fail. The workload cluster
+	// API server may be unreachable during teardown (for example due to a transient Azure
+	// load balancer / DNS issue), and we should not turn an otherwise-successful spec into
+	// a failure during [AfterEach] log collection.
+	if err := workload.GetClient().List(ctx, nodes); err != nil {
+		Logf("Failed to list nodes for workload cluster %s/%s: %v", namespace, name, err)
+		return
+	}
 
 	var err error
 	var nodeDescribe string
