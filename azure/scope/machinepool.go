@@ -18,11 +18,9 @@ package scope
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
@@ -91,11 +89,10 @@ type (
 
 	// MachinePoolCache stores common machine pool information so we don't have to hit the API multiple times within the same reconcile loop.
 	MachinePoolCache struct {
-		BootstrapData           string
-		HasBootstrapDataChanges bool
-		VMImage                 *infrav1.Image
-		VMSKU                   resourceskus.SKU
-		MaxSurge                int
+		BootstrapData string
+		VMImage       *infrav1.Image
+		VMSKU         resourceskus.SKU
+		MaxSurge      int
 	}
 )
 
@@ -144,11 +141,6 @@ func (m *MachinePoolScope) InitMachinePoolCache(ctx context.Context) error {
 		m.cache = &MachinePoolCache{}
 
 		m.cache.BootstrapData, err = m.GetBootstrapData(ctx)
-		if err != nil {
-			return err
-		}
-
-		m.cache.HasBootstrapDataChanges, err = m.HasBootstrapDataChanges(ctx)
 		if err != nil {
 			return err
 		}
@@ -226,8 +218,6 @@ func (m *MachinePoolScope) ScaleSetSpec(ctx context.Context) azure.ResourceSpecG
 	}
 
 	if m.cache != nil {
-		spec.ShouldPatchCustomData = m.cache.HasBootstrapDataChanges
-		log.V(4).Info("has bootstrap data changed?", "shouldPatchCustomData", spec.ShouldPatchCustomData)
 		spec.VMSSExtensionSpecs = m.VMSSExtensionSpecs()
 		spec.SKU = m.cache.VMSKU
 		spec.VMImage = m.cache.VMImage
@@ -698,7 +688,12 @@ func (m *MachinePoolScope) Close(ctx context.Context) error {
 	ctx, log, done := tele.StartSpanWithLogger(ctx, "scope.MachinePoolScope.Close")
 	defer done()
 
-	if m.vmssState != nil {
+	// Only sync MachinePool w/ MachinePoolMachines if the MachinePool
+	// represents an actual Azure VMSS (vmssState != nil), and if the
+	// MachinePool is not in an active state of deletion
+	// (DeletionTimestamp.IsZero()) to avoid recreating
+	// AzureMachinePoolMachines that reconcileDelete just removed.
+	if m.vmssState != nil && m.AzureMachinePool.DeletionTimestamp.IsZero() {
 		if err := m.applyAzureMachinePoolMachines(ctx); err != nil {
 			log.Error(err, "failed to apply changes to the AzureMachinePoolMachines")
 			return errors.Wrap(err, "failed to apply changes to AzureMachinePoolMachines")
@@ -707,10 +702,6 @@ func (m *MachinePoolScope) Close(ctx context.Context) error {
 		m.setProvisioningStateAndConditions(m.vmssState.State)
 		if err := m.updateReplicasAndProviderIDs(ctx); err != nil {
 			return errors.Wrap(err, "failed to update replicas and providerIDs")
-		}
-		if err := m.updateCustomDataHash(ctx); err != nil {
-			// ignore errors to calculating the custom data hash since it's not absolutely crucial.
-			log.V(4).Error(err, "unable to update custom data hash, ignoring.")
 		}
 	}
 
@@ -743,39 +734,6 @@ func (m *MachinePoolScope) GetBootstrapData(ctx context.Context) (string, error)
 		return "", errors.New("error retrieving bootstrap data: secret value key is missing")
 	}
 	return base64.StdEncoding.EncodeToString(value), nil
-}
-
-// calculateBootstrapDataHash calculates the sha256 hash of the bootstrap data.
-func (m *MachinePoolScope) calculateBootstrapDataHash(_ context.Context) (string, error) {
-	if m.cache == nil {
-		return "", fmt.Errorf("machinepool cache is nil")
-	}
-	bootstrapData := m.cache.BootstrapData
-	h := sha256.New()
-	n, err := io.WriteString(h, bootstrapData)
-	if err != nil || n == 0 {
-		return "", fmt.Errorf("unable to write custom data (bytes written: %q): %w", n, err)
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
-}
-
-// HasBootstrapDataChanges calculates the sha256 hash of the bootstrap data and compares it with the saved hash in AzureMachinePool.Status.
-func (m *MachinePoolScope) HasBootstrapDataChanges(ctx context.Context) (bool, error) {
-	newHash, err := m.calculateBootstrapDataHash(ctx)
-	if err != nil {
-		return false, err
-	}
-	return m.AzureMachinePool.GetAnnotations()[azure.CustomDataHashAnnotation] != newHash, nil
-}
-
-// updateCustomDataHash calculates the sha256 hash of the bootstrap data and saves it in AzureMachinePool.Status.
-func (m *MachinePoolScope) updateCustomDataHash(ctx context.Context) error {
-	newHash, err := m.calculateBootstrapDataHash(ctx)
-	if err != nil {
-		return err
-	}
-	m.SetAnnotation(azure.CustomDataHashAnnotation, newHash)
-	return nil
 }
 
 // GetVMImage picks an image from the AzureMachinePool configuration, or uses a default one.
@@ -980,8 +938,8 @@ func (m *MachinePoolScope) ReconcileReplicas(ctx context.Context, vmss *azure.VM
 }
 
 // AnnotationJSON returns a map[string]interface from a JSON annotation.
-func (m *MachinePoolScope) AnnotationJSON(annotation string) (map[string]interface{}, error) {
-	out := map[string]interface{}{}
+func (m *MachinePoolScope) AnnotationJSON(annotation string) (map[string]any, error) {
+	out := map[string]any{}
 	jsonAnnotation := m.AzureMachinePool.GetAnnotations()[annotation]
 	if jsonAnnotation == "" {
 		return out, nil
@@ -997,7 +955,7 @@ func (m *MachinePoolScope) AnnotationJSON(annotation string) (map[string]interfa
 // `content`. `content` in this case should be a `map[string]interface{}`
 // suitable for turning into JSON. This `content` map will be marshalled into a
 // JSON string before being set as the given `annotation`.
-func (m *MachinePoolScope) UpdateAnnotationJSON(annotation string, content map[string]interface{}) error {
+func (m *MachinePoolScope) UpdateAnnotationJSON(annotation string, content map[string]any) error {
 	b, err := json.Marshal(content)
 	if err != nil {
 		return err

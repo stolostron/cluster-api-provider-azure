@@ -24,6 +24,9 @@ spec:
     value: '{{revision}}'
   - name: output-image
     value: quay.io/redhat-user-workloads/crt-redhat-acm-tenant/cluster-api-provider-azure-mce-211:{{revision}}
+  - name: additional-tags
+    value:
+    - 2.11.0-latest
   - name: build-platforms
     value:
     - linux/x86_64

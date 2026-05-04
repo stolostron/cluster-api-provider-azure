@@ -19,6 +19,7 @@ package scalesets
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5"
 	"github.com/pkg/errors"
@@ -30,7 +31,6 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/async"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
 	azureutil "sigs.k8s.io/cluster-api-provider-azure/util/azure"
-	"sigs.k8s.io/cluster-api-provider-azure/util/slice"
 	"sigs.k8s.io/cluster-api-provider-azure/util/tele"
 )
 
@@ -132,7 +132,7 @@ func (s *Service) Reconcile(ctx context.Context) (retErr error) {
 // Code later in the reconciler uses scope's VMSS state for determining scale status and whether to create/delete
 // AzureMachinePoolMachines.
 // N.B.: before calling this function, make sure scaleSetSpec.VMSSInstances is updated to the latest state.
-func (s *Service) updateScopeState(ctx context.Context, result interface{}, scaleSetSpec *ScaleSetSpec) error {
+func (s *Service) updateScopeState(ctx context.Context, result any, scaleSetSpec *ScaleSetSpec) error {
 	vmss, ok := result.(armcompute.VirtualMachineScaleSet)
 	if !ok {
 		return errors.Errorf("%T is not an armcompute.VirtualMachineScaleSet", result)
@@ -156,24 +156,13 @@ func (s *Service) updateScopeState(ctx context.Context, result interface{}, scal
 // Delete deletes a scale set asynchronously. Delete sends a DELETE request to Azure and if accepted without error,
 // the VMSS will be considered deleted. The actual delete in Azure may take longer, but should eventually complete.
 func (s *Service) Delete(ctx context.Context) error {
-	ctx, log, done := tele.StartSpanWithLogger(ctx, "scalesets.Service.Delete")
+	ctx, _, done := tele.StartSpanWithLogger(ctx, "scalesets.Service.Delete")
 	defer done()
 
 	ctx, cancel := context.WithTimeout(ctx, s.Scope.DefaultedAzureServiceReconcileTimeout())
 	defer cancel()
 
 	scaleSetSpec := s.Scope.ScaleSetSpec(ctx)
-
-	defer func() {
-		fetchedVMSS, err := s.getVirtualMachineScaleSet(ctx, scaleSetSpec)
-		if err != nil && !azure.ResourceNotFound(err) {
-			log.Error(err, "failed to get vmss in deferred update")
-		}
-
-		if fetchedVMSS != nil {
-			s.Scope.SetVMSSState(fetchedVMSS)
-		}
-	}()
 
 	err := s.DeleteResource(ctx, scaleSetSpec, serviceName)
 
@@ -332,7 +321,7 @@ func validateDiagnosticsProfile(spec *ScaleSetSpec) error {
 		string(infrav1.ManagedDiagnosticsStorage),
 		string(infrav1.UserManagedDiagnosticsStorage),
 	}
-	if !slice.Contains(validStorageTypes, string(boot.StorageAccountType)) {
+	if !slices.Contains(validStorageTypes, string(boot.StorageAccountType)) {
 		return azure.WithTerminalError(fmt.Errorf("invalid storageAccountType: %s. Allowed values are %v", boot.StorageAccountType, validStorageTypes))
 	}
 
@@ -351,36 +340,12 @@ func (s *Service) validateAvailabilityZones(ctx context.Context, spec *ScaleSetS
 	}
 
 	for _, az := range spec.FailureDomains {
-		if !slice.Contains(azsInLocation, az) {
+		if !slices.Contains(azsInLocation, az) {
 			return azure.WithTerminalError(errors.Errorf("availability zone %s is not available for VM type %s in location %s", az, spec.Size, spec.Location))
 		}
 	}
 
 	return nil
-}
-
-// getVirtualMachineScaleSet provides information about a Virtual Machine Scale Set and its instances.
-func (s *Service) getVirtualMachineScaleSet(ctx context.Context, spec azure.ResourceSpecGetter) (*azure.VMSS, error) {
-	ctx, _, done := tele.StartSpanWithLogger(ctx, "scalesets.Service.getVirtualMachineScaleSet")
-	defer done()
-
-	vmssResult, err := s.Client.Get(ctx, spec)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get existing VMSS")
-	}
-	vmss, ok := vmssResult.(armcompute.VirtualMachineScaleSet)
-	if !ok {
-		return nil, errors.Errorf("%T is not an armcompute.VirtualMachineScaleSet", vmssResult)
-	}
-
-	vmssInstances, err := s.Client.ListInstances(ctx, spec.ResourceGroupName(), spec.ResourceName())
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to list instances")
-	}
-
-	result := converters.SDKToVMSS(vmss, vmssInstances)
-
-	return &result, nil
 }
 
 // IsManaged returns always returns true as CAPZ does not support BYO scale set.

@@ -43,6 +43,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -456,8 +457,7 @@ func getProxiedSSHClient(controlPlaneEndpoint, hostname, port string, ioTimeout 
 	}
 
 	// Init a client connection to a control plane node via the public load balancer
-	dialer := &net.Dialer{Timeout: config.Timeout}
-	c, err := dialer.DialContext(context.Background(), "tcp", fmt.Sprintf("%s:%s", controlPlaneEndpoint, port))
+	c, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%s", controlPlaneEndpoint, port), config.Timeout) //nolint:noctx
 	if err != nil {
 		return nil, errors.Wrapf(err, "dialing public load balancer at %s", controlPlaneEndpoint)
 	}
@@ -692,7 +692,6 @@ func resolveKubetestRepoListPath(version string, path string) (string, error) {
 func resolveKubernetesVersions(config *clusterctl.E2EConfig) {
 	ctx := context.TODO()
 	linuxVersions := getVersionsInCommunityGallery(ctx, os.Getenv(AzureLocation), capiCommunityGallery, "capi-ubun2-2404")
-	flatcarK8sVersions := getFlatcarK8sVersions(ctx, os.Getenv(AzureLocation), flatcarCAPICommunityGallery)
 
 	var versions semver.Versions
 
@@ -715,19 +714,21 @@ func resolveKubernetesVersions(config *clusterctl.E2EConfig) {
 		Logf("No Windows machines required, using Linux versions only")
 	}
 
+	// Skip KUBERNETES_VERSION validation against gallery images when CAPZ_GALLERY_VERSION is set.
+	// This allows testing custom-built Kubernetes components (e.g., DALEC builds) with a version
+	// that doesn't exist in the community gallery, while using a different base node image.
 	if config.HasVariable(capi_e2e.KubernetesVersion) {
-		resolveKubernetesVersion(config, versions, capi_e2e.KubernetesVersion)
+		if _, hasGalleryVersion := os.LookupEnv("CAPZ_GALLERY_VERSION"); !hasGalleryVersion {
+			resolveKubernetesVersion(config, versions, capi_e2e.KubernetesVersion)
+		} else {
+			Logf("Skipping KUBERNETES_VERSION validation: CAPZ_GALLERY_VERSION is set, using explicit gallery image version")
+		}
 	}
 	if config.HasVariable(capi_e2e.KubernetesVersionUpgradeFrom) {
 		resolveKubernetesVersion(config, versions, capi_e2e.KubernetesVersionUpgradeFrom)
 	}
 	if config.HasVariable(capi_e2e.KubernetesVersionUpgradeTo) {
 		resolveKubernetesVersion(config, versions, capi_e2e.KubernetesVersionUpgradeTo)
-	}
-	if config.HasVariable(FlatcarKubernetesVersion) && config.HasVariable(FlatcarVersion) {
-		resolveFlatcarKubernetesVersion(config, flatcarK8sVersions, FlatcarKubernetesVersion)
-		flatcarVersions := getFlatcarVersions(ctx, os.Getenv(AzureLocation), flatcarCAPICommunityGallery, config.MustGetVariable(FlatcarKubernetesVersion))
-		resolveFlatcarVersion(config, flatcarVersions, FlatcarVersion)
 	}
 }
 
@@ -742,33 +743,6 @@ func resolveVariable(config *clusterctl.E2EConfig, varName, v string) {
 	}
 	config.Variables[varName] = v
 	Logf("Resolved %s (set to %s) to %s", varName, oldVersion, v)
-}
-
-func resolveFlatcarKubernetesVersion(config *clusterctl.E2EConfig, versions semver.Versions, varName string) {
-	resolveVariable(config, varName, getLatestVersionForMinor(config.MustGetVariable(varName), versions, "Flatcar Community Gallery"))
-}
-
-func resolveFlatcarVersion(config *clusterctl.E2EConfig, versions semver.Versions, varName string) {
-	version := config.MustGetVariable(varName)
-	if version != "latest" {
-		Expect(versions).To(ContainElement(semver.MustParse(version)), fmt.Sprintf("Provided Flatcar version %q does not have a corresponding VM image in the Flatcar Community Gallery", version))
-	}
-
-	if version == "latest" {
-		semver.Sort(versions)
-		version = versions[len(versions)-1].String()
-	}
-
-	resolveVariable(config, varName, version)
-}
-
-func newCommunityGalleryImagesClient() *armcompute.CommunityGalleryImagesClient {
-	cred, err := azidentity.NewDefaultAzureCredential(nil)
-	Expect(err).NotTo(HaveOccurred())
-	communityGalleryImagesClient, err := armcompute.NewCommunityGalleryImagesClient(getSubscriptionID(Default), cred, nil)
-	Expect(err).NotTo(HaveOccurred())
-
-	return communityGalleryImagesClient
 }
 
 func newCommunityGalleryImageVersionsClient() *armcompute.CommunityGalleryImageVersionsClient {
@@ -823,62 +797,6 @@ func getLatestVersionForMinor(version string, versions semver.Versions, imagesSo
 	return version
 }
 
-func getFlatcarVersions(ctx context.Context, location, galleryName, k8sVersion string) semver.Versions {
-	image := fmt.Sprintf("flatcar-stable-amd64-capi-%s", k8sVersion)
-
-	Logf("Finding Flatcar versions in community gallery %q in location %q for image %q", galleryName, location, image)
-	var versions semver.Versions
-	communityGalleryImageVersionsClient := newCommunityGalleryImageVersionsClient()
-	var imageVersions []*armcompute.CommunityGalleryImageVersion
-	pager := communityGalleryImageVersionsClient.NewListPager(location, galleryName, image, nil)
-	for pager.More() {
-		nextResult, err := pager.NextPage(ctx)
-		Expect(err).NotTo(HaveOccurred())
-		imageVersions = append(imageVersions, nextResult.Value...)
-	}
-
-	for _, imageVersion := range imageVersions {
-		versions = append(versions, semver.MustParse(*imageVersion.Name))
-	}
-
-	return versions
-}
-
-func getFlatcarK8sVersions(ctx context.Context, location, communityGalleryName string) semver.Versions {
-	Logf("Finding Flatcar images and versions in community gallery %q in location %q", communityGalleryName, location)
-	var versions semver.Versions
-	k8sVersion := regexp.MustCompile(`flatcar-stable-amd64-capi-v(\d+)\.(\d+).(\d+)`)
-	communityGalleryImagesClient := newCommunityGalleryImagesClient()
-	communityGalleryImageVersionsClient := newCommunityGalleryImageVersionsClient()
-	var images []*armcompute.CommunityGalleryImage
-	pager := communityGalleryImagesClient.NewListPager(location, communityGalleryName, nil)
-	for pager.More() {
-		nextResult, err := pager.NextPage(ctx)
-		Expect(err).NotTo(HaveOccurred())
-		images = append(images, nextResult.Value...)
-	}
-
-	for _, image := range images {
-		var imageVersions []*armcompute.CommunityGalleryImageVersion
-		pager := communityGalleryImageVersionsClient.NewListPager(location, communityGalleryName, *image.Name, nil)
-		for pager.More() {
-			nextResult, err := pager.NextPage(ctx)
-			Expect(err).NotTo(HaveOccurred())
-			imageVersions = append(imageVersions, nextResult.Value...)
-		}
-
-		if len(imageVersions) == 0 {
-			continue
-		}
-
-		match := k8sVersion.FindStringSubmatch(*image.Name)
-		stringVer := fmt.Sprintf("%s.%s.%s", match[1], match[2], match[3])
-		versions = append(versions, semver.MustParse(stringVer))
-	}
-
-	return versions
-}
-
 // getPodLogs returns the logs of a pod, or an error in string format.
 func getPodLogs(ctx context.Context, clientset *kubernetes.Clientset, pod corev1.Pod) string {
 	req := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{})
@@ -899,4 +817,40 @@ func getSubscriptionID(g Gomega) string {
 	subscriptionID := os.Getenv("AZURE_SUBSCRIPTION_ID")
 	g.Expect(subscriptionID).NotTo(BeEmpty())
 	return subscriptionID
+}
+
+// waitForWebhookCAInjection waits for cert-manager's cainjector to populate
+// the caBundle field in all webhook configurations annotated with
+// cert-manager.io/inject-ca-from. This prevents a race condition where tests
+// start before the cainjector has finished injecting CA bundles, causing
+// webhook calls to fail with "x509: certificate signed by unknown authority".
+func waitForWebhookCAInjection(ctx context.Context, c client.Client) {
+	const caInjectionAnnotation = "cert-manager.io/inject-ca-from"
+
+	By("Waiting for webhook CA injection to complete")
+	Eventually(func(g Gomega) {
+		var validatingList admissionregistrationv1.ValidatingWebhookConfigurationList
+		g.Expect(c.List(ctx, &validatingList)).To(Succeed())
+		for _, config := range validatingList.Items {
+			if _, ok := config.Annotations[caInjectionAnnotation]; !ok {
+				continue
+			}
+			for _, wh := range config.Webhooks {
+				g.Expect(wh.ClientConfig.CABundle).ToNot(BeEmpty(),
+					"webhook %s in ValidatingWebhookConfiguration %s has no caBundle", wh.Name, config.Name)
+			}
+		}
+
+		var mutatingList admissionregistrationv1.MutatingWebhookConfigurationList
+		g.Expect(c.List(ctx, &mutatingList)).To(Succeed())
+		for _, config := range mutatingList.Items {
+			if _, ok := config.Annotations[caInjectionAnnotation]; !ok {
+				continue
+			}
+			for _, wh := range config.Webhooks {
+				g.Expect(wh.ClientConfig.CABundle).ToNot(BeEmpty(),
+					"webhook %s in MutatingWebhookConfiguration %s has no caBundle", wh.Name, config.Name)
+			}
+		}
+	}, 5*time.Minute, 5*time.Second).Should(Succeed(), "cert-manager cainjector did not inject CA bundles into webhook configurations in time")
 }

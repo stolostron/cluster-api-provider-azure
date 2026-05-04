@@ -18,17 +18,13 @@ package scope
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
-	"io"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
@@ -1546,6 +1542,153 @@ func TestMachinePoolScope_applyAzureMachinePoolMachines(t *testing.T) {
 	}
 }
 
+func TestMachinePoolScope_Close_SkipsMachineSyncDuringDeletion(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	scheme := runtime.NewScheme()
+	_ = clusterv1.AddToScheme(scheme)
+	_ = infrav1exp.AddToScheme(scheme)
+	_ = infrav1.AddToScheme(scheme)
+
+	tests := []struct {
+		Name  string
+		Setup func(mp *clusterv1.MachinePool, amp *infrav1exp.AzureMachinePool, vmssState *azure.VMSS)
+		// PostFetch runs after objects are fetched from the fake client (with server-generated metadata).
+		// Use this to set fields like DeletionTimestamp that the fake client won't persist from WithObjects.
+		PostFetch func(amp *infrav1exp.AzureMachinePool)
+		Verify    func(g *WithT, c client.Client, err error)
+	}{
+		{
+			Name: "Close does not recreate AzureMachinePoolMachines when AzureMachinePool has a deletion timestamp",
+			Setup: func(mp *clusterv1.MachinePool, amp *infrav1exp.AzureMachinePool, vmssState *azure.VMSS) {
+				mp.Spec.Replicas = ptr.To[int32](1)
+				amp.Finalizers = []string{clusterv1.MachinePoolFinalizer}
+
+				// Simulate the race: VMSS is still visible in Azure with a running instance,
+				// but the AzureMachinePoolMachine for it has already been deleted by reconcileDelete.
+				vmssState.Instances = []azure.VMSSVM{
+					{
+						ID:    "/subscriptions/123/resourceGroups/my-rg/providers/Microsoft.Compute/virtualMachineScaleSets/my-vmss/virtualMachines/1",
+						Name:  "ampm1",
+						State: infrav1.Succeeded,
+					},
+				}
+			},
+			PostFetch: func(amp *infrav1exp.AzureMachinePool) {
+				now := metav1.Now()
+				amp.DeletionTimestamp = &now
+			},
+			Verify: func(g *WithT, c client.Client, err error) {
+				g.Expect(err).NotTo(HaveOccurred())
+				// The key assertion: no AzureMachinePoolMachine should have been created
+				list := infrav1exp.AzureMachinePoolMachineList{}
+				g.Expect(c.List(ctx, &list)).NotTo(HaveOccurred())
+				g.Expect(list.Items).Should(BeEmpty())
+			},
+		},
+		{
+			Name: "Close creates AzureMachinePoolMachines when AzureMachinePool is not being deleted",
+			Setup: func(mp *clusterv1.MachinePool, amp *infrav1exp.AzureMachinePool, vmssState *azure.VMSS) {
+				mp.Spec.Replicas = ptr.To[int32](1)
+
+				vmssState.Instances = []azure.VMSSVM{
+					{
+						ID:    "/subscriptions/123/resourceGroups/my-rg/providers/Microsoft.Compute/virtualMachineScaleSets/my-vmss/virtualMachines/1",
+						Name:  "ampm1",
+						State: infrav1.Succeeded,
+					},
+				}
+			},
+			Verify: func(g *WithT, c client.Client, err error) {
+				g.Expect(err).NotTo(HaveOccurred())
+				// Normal case: AzureMachinePoolMachine should have been created
+				list := infrav1exp.AzureMachinePoolMachineList{}
+				g.Expect(c.List(ctx, &list)).NotTo(HaveOccurred())
+				g.Expect(list.Items).Should(HaveLen(1))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.Name, func(t *testing.T) {
+			var (
+				g       = NewWithT(t)
+				cluster = &clusterv1.Cluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "cluster1",
+						Namespace: "default",
+					},
+					Spec: clusterv1.ClusterSpec{
+						InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+							Name:     "azCluster1",
+							Kind:     "AzureCluster",
+							APIGroup: infrav1.GroupVersion.Group,
+						},
+					},
+					Status: clusterv1.ClusterStatus{
+						Initialization: clusterv1.ClusterInitializationStatus{
+							InfrastructureProvisioned: ptr.To(true),
+						},
+					},
+				}
+				mp = &clusterv1.MachinePool{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "mp1",
+						Namespace: "default",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name:       "cluster1",
+								Kind:       "Cluster",
+								APIVersion: clusterv1.GroupVersion.String(),
+							},
+						},
+					},
+				}
+				amp = &infrav1exp.AzureMachinePool{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "amp1",
+						Namespace: "default",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								Name:       "mp1",
+								Kind:       "MachinePool",
+								APIVersion: clusterv1.GroupVersion.String(),
+							},
+						},
+					},
+				}
+				vmssState = &azure.VMSS{}
+			)
+
+			tt.Setup(mp, amp, vmssState)
+
+			cb := fake.NewClientBuilder().WithScheme(scheme).WithObjects(amp, mp, cluster).WithStatusSubresource(amp)
+			c := cb.Build()
+
+			// Re-fetch objects so they have proper metadata (ResourceVersion) for patching.
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(amp), amp)).To(Succeed())
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(mp), mp)).To(Succeed())
+
+			if tt.PostFetch != nil {
+				tt.PostFetch(amp)
+			}
+
+			s, err := NewMachinePoolScope(MachinePoolScopeParams{
+				Client:           c,
+				MachinePool:      mp,
+				AzureMachinePool: amp,
+				ClusterScope: &ClusterScope{
+					Cluster: cluster,
+				},
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			s.vmssState = vmssState
+
+			err = s.Close(ctx)
+			tt.Verify(g, c, err)
+		})
+	}
+}
+
 func TestMachinePoolScope_setProvisioningStateAndConditions(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clusterv1.AddToScheme(scheme)
@@ -1721,153 +1864,4 @@ func TestMachinePoolScope_setProvisioningStateAndConditions(t *testing.T) {
 			tt.Verify(g, s.AzureMachinePool, s.client)
 		})
 	}
-}
-
-func TestBootstrapDataChanges(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	scheme := runtime.NewScheme()
-	_ = clusterv1.AddToScheme(scheme)
-	_ = infrav1.AddToScheme(scheme)
-	_ = infrav1exp.AddToScheme(scheme)
-	_ = corev1.AddToScheme(scheme)
-
-	var (
-		g        = NewWithT(t)
-		mockCtrl = gomock.NewController(t)
-		cb       = fake.NewClientBuilder().WithScheme(scheme)
-		cluster  = &clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "cluster1",
-				Namespace: "default",
-			},
-			Spec: clusterv1.ClusterSpec{
-				InfrastructureRef: clusterv1.ContractVersionedObjectReference{
-					Name:     "azCluster1",
-					Kind:     "AzureCluster",
-					APIGroup: infrav1.GroupVersion.Group,
-				},
-			},
-			Status: clusterv1.ClusterStatus{
-				Initialization: clusterv1.ClusterInitializationStatus{
-					InfrastructureProvisioned: ptr.To(true),
-				},
-			},
-		}
-		azureCluster = &infrav1.AzureCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "azCluster1",
-				Namespace: "default",
-			},
-			Spec: infrav1.AzureClusterSpec{
-				AzureClusterClassSpec: infrav1.AzureClusterClassSpec{
-					Location: "test",
-				},
-			},
-		}
-		mp = &clusterv1.MachinePool{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "mp1",
-				Namespace: "default",
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						Name:       "cluster1",
-						Kind:       "Cluster",
-						APIVersion: clusterv1.GroupVersion.String(),
-					},
-				},
-			},
-			Spec: clusterv1.MachinePoolSpec{
-				Template: clusterv1.MachineTemplateSpec{
-					Spec: clusterv1.MachineSpec{
-						Bootstrap: clusterv1.Bootstrap{
-							DataSecretName: ptr.To("mp-secret"),
-						},
-						Version: "v1.31.0",
-					},
-				},
-			},
-		}
-		bootstrapData     = "test"
-		bootstrapDataHash = sha256Hash(base64.StdEncoding.EncodeToString([]byte(bootstrapData)))
-		bootstrapSecret   = corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "mp-secret",
-				Namespace: "default",
-			},
-			Data: map[string][]byte{"value": []byte(bootstrapData)},
-		}
-		amp = &infrav1exp.AzureMachinePool{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "amp1",
-				Namespace: "default",
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						Name:       "mp1",
-						Kind:       "MachinePool",
-						APIVersion: clusterv1.GroupVersion.String(),
-					},
-				},
-				Annotations: map[string]string{
-					azure.CustomDataHashAnnotation: fmt.Sprintf("%x", bootstrapDataHash),
-				},
-			},
-			Spec: infrav1exp.AzureMachinePoolSpec{
-				Template: infrav1exp.AzureMachinePoolMachineTemplate{
-					Image: &infrav1.Image{},
-					NetworkInterfaces: []infrav1.NetworkInterface{
-						{
-							SubnetName: "test",
-						},
-					},
-					VMSize: "VM_SIZE",
-				},
-			},
-		}
-		vmssState = &azure.VMSS{}
-	)
-	defer mockCtrl.Finish()
-
-	s := &MachinePoolScope{
-		client: cb.
-			WithObjects(&bootstrapSecret).
-			Build(),
-		ClusterScoper: &ClusterScope{
-			Cluster:      cluster,
-			AzureCluster: azureCluster,
-		},
-		skuCache: resourceskus.NewStaticCache([]armcompute.ResourceSKU{
-			{
-				Name: ptr.To("VM_SIZE"),
-			},
-		}, "test"),
-		MachinePool:      mp,
-		AzureMachinePool: amp,
-		vmssState:        vmssState,
-	}
-
-	g.Expect(s.InitMachinePoolCache(ctx)).NotTo(HaveOccurred())
-
-	spec := s.ScaleSetSpec(ctx)
-	sSpec := spec.(*scalesets.ScaleSetSpec)
-	g.Expect(sSpec.ShouldPatchCustomData).To(BeFalse())
-
-	amp.Annotations[azure.CustomDataHashAnnotation] = "old"
-
-	// reset cache to be able to build up the cache again
-	s.cache = nil
-	g.Expect(s.InitMachinePoolCache(ctx)).NotTo(HaveOccurred())
-
-	spec = s.ScaleSetSpec(ctx)
-	sSpec = spec.(*scalesets.ScaleSetSpec)
-	g.Expect(sSpec.ShouldPatchCustomData).To(BeTrue())
-}
-
-func sha256Hash(text string) []byte {
-	h := sha256.New()
-	_, err := io.WriteString(h, text)
-	if err != nil {
-		panic(err)
-	}
-	return h.Sum(nil)
 }

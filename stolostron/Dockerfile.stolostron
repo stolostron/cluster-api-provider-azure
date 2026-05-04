@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi8/go-toolset:1.25.3-1766363546 AS toolchain
+FROM registry.access.redhat.com/ubi8/go-toolset:1.25-1776905877 AS toolchain
 
 # Run this with docker build --build_arg $(go env GOPROXY) to override the goproxy
 ARG goproxy=https://proxy.golang.org
@@ -6,7 +6,9 @@ ENV GOPROXY=$goproxy
 
 FROM toolchain AS builder
 
-ENV GOPATH=/opt/app-root/src/go
+USER 0
+WORKDIR /workspace
+
 ENV GOFLAGS="-buildvcs=false"
 
 COPY ./ ./
@@ -18,7 +20,6 @@ RUN  --mount=type=cache,target=/root/.local/share/golang \
      go mod download
 
 # Build
-RUN mkdir ./bin
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.local/share/golang \
@@ -26,5 +27,5 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 # Copy the aso-controller into a thin image
 FROM registry.access.redhat.com/ubi9/ubi:9.6-1754380668
-COPY --from=builder /opt/app-root/src/manager /manager
+COPY --from=builder /workspace/manager /manager
 ENTRYPOINT ["/manager"]

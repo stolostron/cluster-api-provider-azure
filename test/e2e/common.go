@@ -80,8 +80,6 @@ const (
 	Timestamp                         = "TIMESTAMP"
 	AKSKubernetesVersion              = "AKS_KUBERNETES_VERSION"
 	AKSKubernetesVersionUpgradeFrom   = "AKS_KUBERNETES_VERSION_UPGRADE_FROM"
-	FlatcarKubernetesVersion          = "FLATCAR_KUBERNETES_VERSION"
-	FlatcarVersion                    = "FLATCAR_VERSION"
 	CalicoVersion                     = "CALICO_VERSION"
 	ManagedClustersResourceType       = "managedClusters"
 	capiImagePublisher                = "cncf-upstream"
@@ -89,7 +87,6 @@ const (
 	capiWindowsOfferName              = "capi-windows"
 	capiCommunityGallery              = "ClusterAPI-f72ceb4f-5159-4c26-a0fe-2ea738f0d019"
 	aksClusterNameSuffix              = "aks"
-	flatcarCAPICommunityGallery       = "flatcar4capi-742ef0cb-dcaa-4ecb-9cb0-bfd2e43dccc0"
 	defaultNamespace                  = "default"
 	AzureCNIv1Manifest                = "AZURE_CNI_V1_MANIFEST_PATH"
 	OldProviderUpgradeVersion         = "OLD_PROVIDER_UPGRADE_VERSION"
@@ -158,7 +155,7 @@ type cleanupInput struct {
 func dumpSpecResourcesAndCleanup(ctx context.Context, input cleanupInput) {
 	defer func() {
 		input.CancelWatches()
-		redactLogs(ctx)
+		redactLogs()
 	}()
 
 	Logf("Dumping all the Cluster API resources in the %q namespace", input.Namespace.Name)
@@ -230,11 +227,11 @@ func ExpectResourceGroupToBe404(ctx context.Context) {
 	Expect(azure.ResourceNotFound(err)).To(BeTrue(), "The resource group in Azure still exists. After deleting the cluster all of the Azure resources should also be deleted.")
 }
 
-func redactLogs(ctx context.Context) {
+func redactLogs() {
 	By("Redacting sensitive information from logs")
 	Expect(e2eConfig.Variables).To(HaveKey(RedactLogScriptPath))
-	//nolint:gosec // Ignore warning about running a command constructed from user input
-	cmd := exec.CommandContext(ctx, e2eConfig.MustGetVariable(RedactLogScriptPath))
+	//nolint:gosec,noctx // Ignore warning about running a command constructed from user input
+	cmd := exec.Command(e2eConfig.MustGetVariable(RedactLogScriptPath))
 	if err := cmd.Run(); err != nil {
 		LogWarningf("Redact logs command failed: %v", err)
 	}
@@ -434,7 +431,7 @@ func withControlPlaneInterval(specName string, intervalName string) func(*cluste
 	}
 }
 
-func withMachineDeploymentInterval(specName string, intervalName string) func(*clusterctl.ApplyClusterTemplateAndWaitInput) {
+func withMachineDeploymentInterval(specName string, intervalName string) func(*clusterctl.ApplyClusterTemplateAndWaitInput) { //nolint:unparam
 	return func(input *clusterctl.ApplyClusterTemplateAndWaitInput) {
 		if intervalName != "" {
 			input.WaitForMachineDeployments = e2eConfig.GetIntervals(specName, intervalName)

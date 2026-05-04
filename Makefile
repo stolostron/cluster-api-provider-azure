@@ -30,6 +30,10 @@ GOPROXY := https://proxy.golang.org
 endif
 export GOPROXY
 
+# Ensure correct toolchain is used
+GOTOOLCHAIN = go$(GO_VERSION)
+export GOTOOLCHAIN
+
 # Active module mode, as we use go modules to manage dependencies
 export GO111MODULE=on
 
@@ -91,7 +95,7 @@ GOVULNCHECK_VER := v1.1.4
 GOVULNCHECK := $(abspath $(TOOLS_BIN_DIR)/$(GOVULNCHECK_BIN)-$(GOVULNCHECK_VER))
 GOVULNCHECK_PKG := golang.org/x/vuln/cmd/govulncheck
 
-KUSTOMIZE_VER := v5.4.1
+KUSTOMIZE_VER := v5.7.0
 KUSTOMIZE_BIN := kustomize
 KUSTOMIZE := $(TOOLS_BIN_DIR)/$(KUSTOMIZE_BIN)-$(KUSTOMIZE_VER)
 
@@ -107,7 +111,7 @@ RELEASE_NOTES_VER := v0.18.0
 RELEASE_NOTES_BIN := release-notes
 RELEASE_NOTES := $(TOOLS_BIN_DIR)/$(RELEASE_NOTES_BIN)-$(RELEASE_NOTES_VER)
 
-TRIVY_VER := 0.64.0
+TRIVY_VER := 0.69.3
 
 KPROMO_VER := v4.0.5
 KPROMO_BIN := kpromo
@@ -359,7 +363,7 @@ create-management-cluster: $(KUSTOMIZE) $(ENVSUBST) $(KUBECTL) $(KIND) ## Create
 	./hack/create-custom-cloud-provider-config.sh
 
 	# Deploy CAPI
-	timeout --foreground 300 bash -c "until curl --retry $(CURL_RETRIES) -sSL https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.4/cluster-api-components.yaml | $(ENVSUBST) | $(KUBECTL) apply -f -; do sleep 5; done"
+	timeout --foreground 300 bash -c "until curl --retry $(CURL_RETRIES) -sSL https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.11.8/cluster-api-components.yaml | $(ENVSUBST) | $(KUBECTL) apply -f -; do sleep 5; done"
 
 	# Deploy CAAPH
 	timeout --foreground 300 bash -c "until curl --retry $(CURL_RETRIES) -sSL https://github.com/kubernetes-sigs/cluster-api-addon-provider-helm/releases/download/v0.5.2/addon-components.yaml | $(ENVSUBST) | $(KUBECTL) apply -f -; do sleep 5; done"
@@ -387,6 +391,14 @@ create-management-cluster: $(KUSTOMIZE) $(ENVSUBST) $(KUBECTL) $(KIND) ## Create
 
 	# Wait for CAPZ deployments
 	$(KUBECTL) wait --for=condition=Available --timeout=5m -n capz-system deployment --all
+
+	# This is a temporary fix to apply https://github.com/kubernetes-sigs/cluster-api/pull/13177 which stops setting
+	# ControlPlaneKubeletLocalMode for K8s v1.36+ clusters.
+	# Override kubeadm control plane controller image on the management cluster (temporary fix)
+	# Remove this when CAPI_VERSION above is update to v1.12.2 OR GREATER
+	timeout --foreground 300 bash -c "until $(KUBECTL) -n capi-kubeadm-control-plane-system get deployment/capi-kubeadm-control-plane-controller-manager > /dev/null 2>&1; do sleep 3; done"
+	$(KUBECTL) -n capi-kubeadm-control-plane-system set image deployment/capi-kubeadm-control-plane-controller-manager manager="gcr.io/k8s-staging-cluster-api/kubeadm-control-plane-controller:v20260109-v1.12.0-rc.0-186-ga64cfe0cc"
+	$(KUBECTL) -n capi-kubeadm-control-plane-system rollout status deployment/capi-kubeadm-control-plane-controller-manager --timeout=5m
 
 	# required sleep for when creating management and workload cluster simultaneously
 	# Wait for the core CRD resources to be "installed" onto the mgmt cluster before returning control
