@@ -28,4 +28,5 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Copy the aso-controller into a thin image
 FROM registry.access.redhat.com/ubi9/ubi:9.6-1754380668
 COPY --from=builder /workspace/manager /manager
+USER nonroot:nonroot
 ENTRYPOINT ["/manager"]
