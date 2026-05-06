@@ -57,12 +57,13 @@ func TestProviderIDListSync_AzureNameMatchesK8sName(t *testing.T) {
 		resourceGroupName = "test-rg"
 	)
 
-	// Create nodes in the managed cluster with the expected naming pattern
-	// Pattern: <clusterName>-<azureName>-<suffix>
+	// Create nodes in the managed cluster with the expected HyperShift labels
+	// Label: hypershift.openshift.io/nodePool=<clusterName>-<azureName>
 	nodes := []corev1.Node{
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "test-cluster-test-cluster-mp1-abc123",
+				Name:   "test-cluster-test-cluster-mp1-abc123",
+				Labels: expectedNodeLabels(clusterName + "-" + azureName),
 			},
 			Spec: corev1.NodeSpec{
 				ProviderID: "azure:///subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroupName + "-managed/providers/Microsoft.Compute/virtualMachines/test-cluster-test-cluster-mp1-abc123",
@@ -70,7 +71,8 @@ func TestProviderIDListSync_AzureNameMatchesK8sName(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "test-cluster-test-cluster-mp1-def456",
+				Name:   "test-cluster-test-cluster-mp1-def456",
+				Labels: expectedNodeLabels(clusterName + "-" + azureName),
 			},
 			Spec: corev1.NodeSpec{
 				ProviderID: "azure:///subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroupName + "-managed/providers/Microsoft.Compute/virtualMachines/test-cluster-test-cluster-mp1-def456",
@@ -190,7 +192,8 @@ func TestProviderIDListSync_AzureNameDiffersFromK8sName(t *testing.T) {
 	nodes := []corev1.Node{
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "aro04-sbx-va7-workeraro1-9cg4d-qjx25",
+				Name:   "aro04-sbx-va7-workeraro1-9cg4d-qjx25",
+				Labels: expectedNodeLabels(clusterName + "-" + azureName),
 			},
 			Spec: corev1.NodeSpec{
 				ProviderID: "azure:///subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroupName + "-managed/providers/Microsoft.Compute/virtualMachines/aro04-sbx-va7-workeraro1-9cg4d-qjx25",
@@ -198,7 +201,8 @@ func TestProviderIDListSync_AzureNameDiffersFromK8sName(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "aro04-sbx-va7-workeraro1-9cg4d-slvd6",
+				Name:   "aro04-sbx-va7-workeraro1-9cg4d-slvd6",
+				Labels: expectedNodeLabels(clusterName + "-" + azureName),
 			},
 			Spec: corev1.NodeSpec{
 				ProviderID: "azure:///subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroupName + "-managed/providers/Microsoft.Compute/virtualMachines/aro04-sbx-va7-workeraro1-9cg4d-slvd6",
