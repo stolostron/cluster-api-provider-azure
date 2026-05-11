@@ -249,7 +249,15 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 			azureNodePoolName = azureName
 		}
 
-		hypershiftNodePoolName := s.scope.ClusterName() + "-" + azureNodePoolName
+		// The hypershift.openshift.io/nodePool label is <baseDomainPrefix>-<azureName>.
+		// The baseDomainPrefix may differ from the CAPI cluster name when
+		// explicitly set on HcpOpenShiftCluster.spec.properties.dns.
+		hypershiftPrefix := s.scope.ClusterName()
+		if prefix := s.getBaseDomainPrefix(ctx); prefix != "" {
+			hypershiftPrefix = prefix
+		}
+
+		hypershiftNodePoolName := hypershiftPrefix + "-" + azureNodePoolName
 		nodes := &corev1.NodeList{}
 		err = clusterClient.List(ctx, nodes,
 			client.MatchingLabels(expectedNodeLabels(hypershiftNodePoolName)),
@@ -451,9 +459,31 @@ func (s *aroMachinePoolService) deleteResources(ctx context.Context) error {
 
 // getHcpClusterName retrieves the HCP cluster name from the control plane.
 func (s *aroMachinePoolService) getHcpClusterName() string {
-	// The HCP cluster name should match the CAPI cluster name
-	// This is consistent with how AROControlPlane names its HcpOpenShiftCluster
 	return s.scope.ClusterName()
+}
+
+// getBaseDomainPrefix reads the baseDomainPrefix from the HcpOpenShiftCluster
+// status. This is the prefix used in the hypershift.openshift.io/nodePool node
+// label and may differ from the CAPI cluster name.
+func (s *aroMachinePoolService) getBaseDomainPrefix(ctx context.Context) string {
+	name := client.ObjectKey{Namespace: s.scope.InfraMachinePool.Namespace, Name: s.getHcpClusterName()}
+
+	v1 := &asoredhatopenshiftv1.HcpOpenShiftCluster{}
+	if err := s.kubeclient.Get(ctx, name, v1); err == nil {
+		if v1.Status.Properties != nil && v1.Status.Properties.Dns != nil && v1.Status.Properties.Dns.BaseDomainPrefix != nil {
+			return *v1.Status.Properties.Dns.BaseDomainPrefix
+		}
+		return ""
+	}
+
+	v2 := &asoredhatopenshiftv1api2025.HcpOpenShiftCluster{}
+	if err := s.kubeclient.Get(ctx, name, v2); err == nil {
+		if v2.Status.Properties != nil && v2.Status.Properties.Dns != nil && v2.Status.Properties.Dns.BaseDomainPrefix != nil {
+			return *v2.Status.Properties.Dns.BaseDomainPrefix
+		}
+	}
+
+	return ""
 }
 
 // expectedNodeLabels returns the labels used to match workload cluster nodes
