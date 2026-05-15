@@ -2,6 +2,7 @@ name: Protect backplane branches
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, edited]
     branches:
       - "backplane-*"
 
