@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, edited]
     branches:
-      - "backplane-*"
+      - "backplane-5*"
 
 permissions: {}
 
@@ -18,6 +18,6 @@ jobs:
           egress-policy: audit
       - name: Block PR
         run: |
-          echo "::error::Direct pull requests to backplane branches are not accepted."
+          echo "::error::Direct pull requests to backplane-5.x branches are not accepted."
           echo "::error::Changes are synced from main via fast-forward. Please target your PR to the main branch instead."
           exit 1
