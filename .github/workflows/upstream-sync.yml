@@ -57,14 +57,21 @@ jobs:
       - name: Find new upstream commits
         id: find-commits
         run: |
-          mapfile -t COMMITS < <(git cherry origin/${{ matrix.target }} upstream/${{ matrix.upstream }} | awk '/^\+ / {print $2}')
+          mapfile -t ALL_COMMITS < <(git cherry origin/${{ matrix.target }} upstream/${{ matrix.upstream }} | awk '/^\+ / {print $2}')
+          COMMITS=()
+          for SHA in "${ALL_COMMITS[@]}"; do
+            PARENT_COUNT=$(git rev-list --parents -n1 "$SHA" | awk '{print NF-1}')
+            if [ "$PARENT_COUNT" -le 1 ]; then
+              COMMITS+=("$SHA")
+            fi
+          done
           COMMIT_COUNT=${#COMMITS[@]}
           echo "count=${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
 
           if [ "$COMMIT_COUNT" -eq 0 ]; then
             echo "No new upstream commits found."
           else
-            echo "Found ${COMMIT_COUNT} new upstream commits."
+            echo "Found ${COMMIT_COUNT} new upstream commits (excluded $((${#ALL_COMMITS[@]} - COMMIT_COUNT)) merge commits)."
           fi
 
       - name: Cherry-pick commits
