@@ -74,8 +74,28 @@ jobs:
             echo "Found ${COMMIT_COUNT} new upstream commits (excluded $((${#ALL_COMMITS[@]} - COMMIT_COUNT)) merge commits)."
           fi
 
-      - name: Cherry-pick commits
+      - name: Check for existing sync PR
         if: steps.find-commits.outputs.count != '0'
+        id: existing-pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          PR_NUMBER="$(
+            gh pr list \
+              --state open \
+              --base "$TARGET" \
+              --json number,headRefName \
+              --jq '.[] | select(.headRefName | startswith("upstream-sync/'"${TARGET}"'/")) | .number' \
+              | head -n1
+          )"
+          echo "number=${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Open sync PR #${PR_NUMBER} already exists for ${TARGET}, skipping."
+          fi
+
+      - name: Cherry-pick commits
+        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == ''
         id: cherry-pick
         run: |
           DATE=$(date +%Y-%m-%d)
@@ -154,7 +174,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Push and create draft PR
-        if: steps.find-commits.outputs.count != '0' && steps.cherry-pick.outputs.applied != '0'
+        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SYNC_BRANCH: ${{ steps.cherry-pick.outputs.branch }}
@@ -217,7 +237,7 @@ jobs:
             --draft
 
       - name: Report when first commit conflicts
-        if: steps.find-commits.outputs.count != '0' && steps.cherry-pick.outputs.applied == '0'
+        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied == '0'
         env:
           CONFLICT_FULL_SHA: ${{ steps.cherry-pick.outputs.conflict_full_sha }}
           CONFLICT_TITLE: ${{ steps.cherry-pick.outputs.conflict_title }}
