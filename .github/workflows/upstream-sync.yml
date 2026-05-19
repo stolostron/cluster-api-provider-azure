@@ -216,7 +216,7 @@ jobs:
           CONFLICT_TITLE: ${{ steps.cherry-pick.outputs.conflict_title }}
           TARGET: ${{ matrix.target }}
         run: |
-          echo "::warning::The first upstream commit conflicts and no PR was created."
+          echo "::error::The first upstream commit conflicts and no PR was created."
           echo ""
           echo "Conflicting commit:"
           echo "  SHA:   ${CONFLICT_FULL_SHA}"
@@ -230,3 +230,4 @@ jobs:
           echo "  git push origin ${TARGET}"
           echo ""
           echo "Then re-run this workflow."
+          exit 1
