@@ -95,6 +95,13 @@ jobs:
           for SHA in "${SHAS[@]}"; do
             TITLE=$(git log --format="%s" -1 "$SHA")
             SHORT=$(echo "$SHA" | cut -c1-8)
+            PARENT_COUNT=$(git rev-list --parents -n1 "$SHA" | awk '{print NF-1}')
+
+            if [ "$PARENT_COUNT" -gt 1 ]; then
+              echo "⏭️ Skipping merge commit: ${SHORT} ${TITLE}"
+              TOTAL=$((TOTAL - 1))
+              continue
+            fi
 
             if [ "$HIT_CONFLICT" = true ]; then
               REMAINING_LINES=$(printf '%s\n- `%s` %s' "$REMAINING_LINES" "$SHORT" "$TITLE")
