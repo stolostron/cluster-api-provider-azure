@@ -184,7 +184,7 @@ jobs:
         run: |
           set -euo pipefail
           REPO="stolostron/capi-tests"
-          MAX_ATTEMPTS=150
+          MAX_ATTEMPTS=145
           POLL_INTERVAL=120
 
           echo "Monitoring run: https://github.com/${REPO}/actions/runs/${RUN_ID}"
