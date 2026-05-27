@@ -38,9 +38,11 @@ jobs:
 
       - name: Map branch to Konflux check and capi-tests branch
         id: map-branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          case "${{ github.base_ref }}" in
+          case "$BASE_REF" in
             main)
               echo "konflux_check=cluster-api-provider-azure-mce-50-on-pull-request" >> "$GITHUB_OUTPUT"
               echo "aro_branch=backplane-5.0" >> "$GITHUB_OUTPUT"
@@ -54,7 +56,7 @@ jobs:
               echo "aro_branch=backplane-2.11" >> "$GITHUB_OUTPUT"
               ;;
             *)
-              echo "::error::Unsupported target branch: ${{ github.base_ref }}"
+              echo "::error::Unsupported target branch: ${BASE_REF}"
               exit 1
               ;;
           esac
@@ -62,12 +64,14 @@ jobs:
       - name: Wait for Konflux build
         env:
           GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHECK_NAME: ${{ steps.map-branch.outputs.konflux_check }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          SHA="${{ github.event.pull_request.head.sha }}"
-          CHECK_NAME="${{ steps.map-branch.outputs.konflux_check }}"
-          REPO="${{ github.repository }}"
+          SHA="$HEAD_SHA"
+          REPO="$GH_REPO"
           MAX_ATTEMPTS=60
           POLL_INTERVAL=60
 
@@ -112,6 +116,8 @@ jobs:
         id: trigger
         env:
           GH_TOKEN: ${{ secrets.CAPI_TESTS_PAT }}
+          ARO_BRANCH: ${{ steps.map-branch.outputs.aro_branch }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
 
@@ -120,24 +126,23 @@ jobs:
 
           echo "Dispatching workload-cluster-aro.yml on stolostron/capi-tests..."
           echo "  cluster_mode=kind"
-          echo "  aro_repo_branch=${{ steps.map-branch.outputs.aro_branch }}"
-          echo "  capz_pr_no=${{ github.event.pull_request.number }}"
+          echo "  aro_repo_branch=${ARO_BRANCH}"
+          echo "  capz_pr_no=${PR_NUMBER}"
 
           gh workflow run workload-cluster-aro.yml \
             --repo stolostron/capi-tests \
             --ref main \
             -f cluster_mode=kind \
-            -f aro_repo_branch="${{ steps.map-branch.outputs.aro_branch }}" \
-            -f capz_pr_no="${{ github.event.pull_request.number }}"
+            -f aro_repo_branch="${ARO_BRANCH}" \
+            -f capz_pr_no="${PR_NUMBER}"
 
       - name: Find triggered run
         id: find-run
         env:
           GH_TOKEN: ${{ secrets.CAPI_TESTS_PAT }}
+          TRIGGER_TIME: ${{ steps.trigger.outputs.trigger_time }}
         run: |
           set -euo pipefail
-
-          TRIGGER_TIME="${{ steps.trigger.outputs.trigger_time }}"
           WORKFLOW_FILE="workload-cluster-aro.yml"
           REPO="stolostron/capi-tests"
           MAX_FIND_ATTEMPTS=10
@@ -175,10 +180,9 @@ jobs:
       - name: Wait for capi-tests completion
         env:
           GH_TOKEN: ${{ secrets.CAPI_TESTS_PAT }}
+          RUN_ID: ${{ steps.find-run.outputs.run_id }}
         run: |
           set -euo pipefail
-
-          RUN_ID="${{ steps.find-run.outputs.run_id }}"
           REPO="stolostron/capi-tests"
           MAX_ATTEMPTS=150
           POLL_INTERVAL=120
