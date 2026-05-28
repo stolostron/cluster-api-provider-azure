@@ -104,7 +104,7 @@ func (acp *AzureClusterProxy) CollectWorkloadClusterLogs(ctx context.Context, na
 }
 
 func (acp *AzureClusterProxy) collectPodLogs(ctx context.Context, namespace string, name string, aboveMachinesPath string) {
-	workload := acp.ClusterProxy.GetWorkloadCluster(ctx, namespace, name)
+	workload := acp.GetWorkloadCluster(ctx, namespace, name)
 	pods := &corev1.PodList{}
 
 	Expect(workload.GetClient().List(ctx, pods)).To(Succeed())
@@ -187,10 +187,17 @@ func collectContainerLogs(ctx context.Context, pod corev1.Pod, container corev1.
 }
 
 func (acp *AzureClusterProxy) collectNodes(ctx context.Context, namespace string, name string, aboveMachinesPath string) {
-	workload := acp.ClusterProxy.GetWorkloadCluster(ctx, namespace, name)
+	workload := acp.GetWorkloadCluster(ctx, namespace, name)
 	nodes := &corev1.NodeList{}
 
-	Expect(workload.GetClient().List(ctx, nodes)).To(Succeed())
+	// Failing to collect node logs should not cause the test to fail. The workload cluster
+	// API server may be unreachable during teardown (for example due to a transient Azure
+	// load balancer / DNS issue), and we should not turn an otherwise-successful spec into
+	// a failure during [AfterEach] log collection.
+	if err := workload.GetClient().List(ctx, nodes); err != nil {
+		Logf("Failed to list nodes for workload cluster %s/%s: %v", namespace, name, err)
+		return
+	}
 
 	var err error
 	var nodeDescribe string
@@ -222,7 +229,7 @@ func (acp *AzureClusterProxy) collectActivityLogs(ctx context.Context, namespace
 	activityLogsClient, err := armmonitor.NewActivityLogsClient(getSubscriptionID(Default), cred, nil)
 	Expect(err).NotTo(HaveOccurred())
 
-	clusterClient := acp.ClusterProxy.GetClient()
+	clusterClient := acp.GetClient()
 	cluster := framework.GetClusterByName(ctx, framework.GetClusterByNameInput{
 		Getter:    clusterClient,
 		Name:      name,
