@@ -59,6 +59,10 @@ jobs:
         run: |
           STATE_FILE=".github/upstream-sync-state.json"
           if [ -f "$STATE_FILE" ]; then
+            if ! jq empty "$STATE_FILE" 2>/dev/null; then
+              echo "::error::Invalid JSON in $STATE_FILE"
+              exit 1
+            fi
             LAST_PROCESSED=$(jq -r '.last_processed_commit // ""' "$STATE_FILE")
             jq -r '.excluded_commits | keys[]' "$STATE_FILE" > /tmp/excluded-shas.txt 2>/dev/null || true
             EXCLUDED_COUNT=$(wc -l < /tmp/excluded-shas.txt | tr -d ' ')
@@ -165,17 +169,24 @@ jobs:
               continue
             fi
 
+            if [ "$HIT_CONFLICT" = true ]; then
+              if grep -qx "$SHA" /tmp/excluded-shas.txt 2>/dev/null; then
+                EXCLUDED=$((EXCLUDED + 1))
+                TOTAL=$((TOTAL - 1))
+                EXCLUDED_LINES=$(printf '%s\n- `%s` %s' "$EXCLUDED_LINES" "$SHORT" "$TITLE")
+                echo "🚫 Excluded: ${SHORT} ${TITLE}"
+              else
+                REMAINING_LINES=$(printf '%s\n- `%s` %s' "$REMAINING_LINES" "$SHORT" "$TITLE")
+              fi
+              continue
+            fi
+
             if grep -qx "$SHA" /tmp/excluded-shas.txt 2>/dev/null; then
               EXCLUDED=$((EXCLUDED + 1))
               TOTAL=$((TOTAL - 1))
               LAST_PROCESSED="$SHA"
               EXCLUDED_LINES=$(printf '%s\n- `%s` %s' "$EXCLUDED_LINES" "$SHORT" "$TITLE")
               echo "🚫 Excluded: ${SHORT} ${TITLE}"
-              continue
-            fi
-
-            if [ "$HIT_CONFLICT" = true ]; then
-              REMAINING_LINES=$(printf '%s\n- `%s` %s' "$REMAINING_LINES" "$SHORT" "$TITLE")
               continue
             fi
 
@@ -227,7 +238,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Update sync state
-        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.last_processed != ''
+        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied != '0' && steps.cherry-pick.outputs.last_processed != ''
         env:
           LAST_PROCESSED: ${{ steps.cherry-pick.outputs.last_processed }}
         run: |
@@ -272,7 +283,7 @@ jobs:
             echo "$APPLIED_LINES"
             echo ""
 
-            if [ "$EXCLUDED" -gt 0 ] 2>/dev/null; then
+            if [ "${EXCLUDED:-0}" -gt 0 ]; then
               echo "### 🚫 Excluded (${EXCLUDED})"
               echo "$EXCLUDED_LINES"
               echo ""
@@ -369,7 +380,7 @@ jobs:
               echo "| Status | ⏸️ Skipped — open PR #${EXISTING_PR} exists |"
             elif [ "$COMMIT_COUNT" = "0" ]; then
               echo "| Status | ✅ Fully synced |"
-            elif [ "$APPLIED" = "$TOTAL" ] 2>/dev/null; then
+            elif [ "${APPLIED:-0}" -eq "${TOTAL:-0}" ] && [ "${TOTAL:-0}" -gt 0 ]; then
               echo "| Status | ✅ All commits applied |"
             else
               REMAINING=$((TOTAL - APPLIED))
