@@ -256,7 +256,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Update sync state
-        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied != '0' && steps.cherry-pick.outputs.last_processed != ''
+        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && (steps.cherry-pick.outputs.applied != '0' || steps.cherry-pick.outputs.skipped != '0') && steps.cherry-pick.outputs.last_processed != ''
         env:
           LAST_PROCESSED: ${{ steps.cherry-pick.outputs.last_processed }}
         run: |
@@ -410,6 +410,8 @@ jobs:
               echo "| Status | ⏸️ Skipped — open PR #${EXISTING_PR} exists |"
             elif [ "$COMMIT_COUNT" = "0" ]; then
               echo "| Status | ✅ Fully synced |"
+            elif [ "${APPLIED:-0}" -eq 0 ] && [ "${SKIPPED:-0}" -gt 0 ] && [ -z "${CONFLICT_SHA}" ]; then
+              echo "| Status | ✅ All commits already applied |"
             elif [ "${APPLIED:-0}" -eq "${TOTAL:-0}" ] && [ "${TOTAL:-0}" -gt 0 ]; then
               echo "| Status | ✅ All commits applied |"
             else
