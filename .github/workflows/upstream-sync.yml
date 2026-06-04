@@ -271,6 +271,19 @@ jobs:
             git commit -m "chore: update upstream sync state"
           fi
 
+      - name: Push state update when all commits were skipped
+        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied == '0' && steps.cherry-pick.outputs.skipped != '0'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+          SYNC_BRANCH: ${{ steps.cherry-pick.outputs.branch }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          STATE_SHA=$(git rev-parse "$SYNC_BRANCH")
+          git checkout "$TARGET"
+          git cherry-pick --no-edit "$STATE_SHA"
+          git push origin "$TARGET"
+          echo "Pushed sync state update directly to ${TARGET} (all commits already applied)"
+
       - name: Push and create draft PR
         if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied != '0'
         env:
