@@ -151,12 +151,14 @@ jobs:
           TOTAL=${#SHAS[@]}
           APPLIED=0
           EXCLUDED=0
+          SKIPPED=0
           CONFLICT_SHA=""
           CONFLICT_TITLE=""
           CONFLICT_FULL_SHA=""
           APPLIED_LINES=""
           EXCLUDED_LINES=""
           REMAINING_LINES=""
+          SKIPPED_LINES=""
           HIT_CONFLICT=false
           LAST_PROCESSED=""
 
@@ -197,6 +199,13 @@ jobs:
               LAST_PROCESSED="$SHA"
               APPLIED_LINES=$(printf '%s\n- `%s` %s' "$APPLIED_LINES" "$SHORT" "$TITLE")
               echo "✅ Applied: ${SHORT} ${TITLE}"
+            elif [ -z "$(git diff --name-only --diff-filter=U)" ]; then
+              git cherry-pick --skip
+              SKIPPED=$((SKIPPED + 1))
+              TOTAL=$((TOTAL - 1))
+              LAST_PROCESSED="$SHA"
+              SKIPPED_LINES=$(printf '%s\n- `%s` %s' "$SKIPPED_LINES" "$SHORT" "$TITLE")
+              echo "⏭️ Already applied (empty cherry-pick): ${SHORT} ${TITLE}"
             else
               git cherry-pick --abort 2>/dev/null || true
               HIT_CONFLICT=true
@@ -210,6 +219,7 @@ jobs:
           echo "applied=${APPLIED}" >> "$GITHUB_OUTPUT"
           echo "total=${TOTAL}" >> "$GITHUB_OUTPUT"
           echo "excluded=${EXCLUDED}" >> "$GITHUB_OUTPUT"
+          echo "skipped=${SKIPPED}" >> "$GITHUB_OUTPUT"
           echo "last_processed=${LAST_PROCESSED}" >> "$GITHUB_OUTPUT"
           echo "conflict_sha=${CONFLICT_SHA}" >> "$GITHUB_OUTPUT"
           echo "conflict_full_sha=${CONFLICT_FULL_SHA}" >> "$GITHUB_OUTPUT"
@@ -230,6 +240,12 @@ jobs:
           {
             echo "excluded_lines<<${DELIM}"
             echo "$EXCLUDED_LINES"
+            echo "${DELIM}"
+          } >> "$GITHUB_OUTPUT"
+          DELIM=$(openssl rand -hex 16)
+          {
+            echo "skipped_lines<<${DELIM}"
+            echo "$SKIPPED_LINES"
             echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
           DELIM=$(openssl rand -hex 16)
@@ -268,6 +284,8 @@ jobs:
           CONFLICT_FULL_SHA: ${{ steps.cherry-pick.outputs.conflict_full_sha }}
           APPLIED_LINES: ${{ steps.cherry-pick.outputs.applied_lines }}
           EXCLUDED_LINES: ${{ steps.cherry-pick.outputs.excluded_lines }}
+          SKIPPED_LINES: ${{ steps.cherry-pick.outputs.skipped_lines }}
+          SKIPPED: ${{ steps.cherry-pick.outputs.skipped }}
           REMAINING_LINES: ${{ steps.cherry-pick.outputs.remaining_lines }}
           TARGET: ${{ matrix.target }}
           UPSTREAM: ${{ matrix.upstream }}
@@ -290,6 +308,12 @@ jobs:
               echo "$EXCLUDED_LINES"
               echo ""
               echo "_Excluded commits are configured in \`.github/upstream-sync-state.json\`._"
+              echo ""
+            fi
+
+            if [ "${SKIPPED:-0}" -gt 0 ]; then
+              echo "### ⏭️ Skipped — already applied (${SKIPPED})"
+              echo "$SKIPPED_LINES"
               echo ""
             fi
 
@@ -329,7 +353,7 @@ jobs:
             --draft
 
       - name: Report when first commit conflicts
-        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied == '0'
+        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied == '0' && steps.cherry-pick.outputs.conflict_full_sha != ''
         env:
           CONFLICT_FULL_SHA: ${{ steps.cherry-pick.outputs.conflict_full_sha }}
           CONFLICT_TITLE: ${{ steps.cherry-pick.outputs.conflict_title }}
@@ -359,6 +383,7 @@ jobs:
           COMMIT_COUNT: ${{ steps.find-commits.outputs.count || '0' }}
           APPLIED: ${{ steps.cherry-pick.outputs.applied || '0' }}
           EXCLUDED: ${{ steps.cherry-pick.outputs.excluded || '0' }}
+          SKIPPED: ${{ steps.cherry-pick.outputs.skipped || '0' }}
           TOTAL: ${{ steps.cherry-pick.outputs.total || '0' }}
           LAST_PROCESSED: ${{ steps.cherry-pick.outputs.last_processed || steps.sync-state.outputs.last_processed }}
           EXISTING_PR: ${{ steps.existing-pr.outputs.number }}
@@ -377,6 +402,9 @@ jobs:
             fi
             echo "| New commits found | ${COMMIT_COUNT} |"
             echo "| Applied this run | ${APPLIED} |"
+            if [ "${SKIPPED:-0}" -gt 0 ]; then
+              echo "| Skipped (already applied) | ${SKIPPED} |"
+            fi
             echo "| Excluded (configured) | ${EXCLUDED_COUNT} |"
             if [ -n "$EXISTING_PR" ]; then
               echo "| Status | ⏸️ Skipped — open PR #${EXISTING_PR} exists |"
