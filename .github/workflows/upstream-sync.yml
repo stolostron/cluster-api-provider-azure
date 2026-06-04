@@ -401,6 +401,7 @@ jobs:
           LAST_PROCESSED: ${{ steps.cherry-pick.outputs.last_processed || steps.sync-state.outputs.last_processed }}
           EXISTING_PR: ${{ steps.existing-pr.outputs.number }}
           EXCLUDED_COUNT: ${{ steps.sync-state.outputs.excluded_count || '0' }}
+          CONFLICT_SHA: ${{ steps.cherry-pick.outputs.conflict_sha || '' }}
         run: |
           {
             echo "## Sync Status: \`${UPSTREAM}\` → \`${TARGET}\`"
