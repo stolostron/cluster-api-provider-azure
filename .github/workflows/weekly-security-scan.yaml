@@ -11,8 +11,11 @@ permissions: {}
 jobs:
   scan:
     permissions:
+      # Required by actions/checkout to read the scanned branch.
       contents: read
+      # Required by github/codeql-action/upload-sarif to publish SARIF results.
       security-events: write
+      # Required by gh issue create/comment when vulnerabilities are detected.
       issues: write
     strategy:
       fail-fast: false
