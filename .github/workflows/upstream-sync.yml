@@ -10,8 +10,8 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
+      contents: write  # for pushing sync branches
+      pull-requests: write  # for creating draft sync PRs
     timeout-minutes: 30
     concurrency:
       group: upstream-sync-${{ matrix.target }}
