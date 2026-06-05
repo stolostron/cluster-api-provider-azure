@@ -87,12 +87,12 @@ jobs:
         env:
           LAST_PROCESSED: ${{ steps.sync-state.outputs.last_processed }}
         run: |
-          CHERRY_ARGS="origin/${{ matrix.target }} upstream/${{ matrix.upstream }}"
+          CHERRY_ARGS=("origin/${{ matrix.target }}" "upstream/${{ matrix.upstream }}")
           if [ -n "$LAST_PROCESSED" ]; then
-            CHERRY_ARGS="$CHERRY_ARGS $LAST_PROCESSED"
+            CHERRY_ARGS+=("$LAST_PROCESSED")
             echo "Using limit: ${LAST_PROCESSED}"
           fi
-          mapfile -t ALL_COMMITS < <(git cherry $CHERRY_ARGS | awk '/^\+ / {print $2}')
+          mapfile -t ALL_COMMITS < <(git cherry "${CHERRY_ARGS[@]}" | awk '/^\+ / {print $2}')
           COMMITS=()
           MERGE_SKIPPED=0
           EXCLUDED_SKIPPED=0
@@ -143,7 +143,7 @@ jobs:
         if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == ''
         id: cherry-pick
         env:
-          LAST_PROCESSED_LIMIT: ${{ steps.sync-state.outputs.last_processed }}
+          LAST_PROCESSED: ${{ steps.sync-state.outputs.last_processed }}
         run: |
           DATE=$(date +%Y-%m-%d)
           BRANCH="upstream-sync/${{ matrix.target }}/${DATE}"
@@ -156,11 +156,11 @@ jobs:
           git checkout -b "$BRANCH"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
 
-          CHERRY_ARGS="origin/${{ matrix.target }} upstream/${{ matrix.upstream }}"
-          if [ -n "$LAST_PROCESSED_LIMIT" ]; then
-            CHERRY_ARGS="$CHERRY_ARGS $LAST_PROCESSED_LIMIT"
+          CHERRY_ARGS=("origin/${{ matrix.target }}" "upstream/${{ matrix.upstream }}")
+          if [ -n "$LAST_PROCESSED" ]; then
+            CHERRY_ARGS+=("$LAST_PROCESSED")
           fi
-          mapfile -t SHAS < <(git cherry $CHERRY_ARGS | awk '/^\+ / {print $2}')
+          mapfile -t SHAS < <(git cherry "${CHERRY_ARGS[@]}" | awk '/^\+ / {print $2}')
           TOTAL=${#SHAS[@]}
           APPLIED=0
           EXCLUDED=0
