@@ -1,0 +1,6 @@
+{
+  "last_processed_commit": "",
+  "excluded_commits": {
+    "38ff4480368453708593c6d0b7c72d0644727ddd": "Bump Cluster API to v1.11.3 — already at v1.11.10 on backplane-2.11"
+  }
+}
