@@ -84,8 +84,19 @@ jobs:
 
       - name: Find new upstream commits
         id: find-commits
+        env:
+          LAST_PROCESSED: ${{ steps.sync-state.outputs.last_processed }}
         run: |
-          mapfile -t ALL_COMMITS < <(git cherry origin/${{ matrix.target }} upstream/${{ matrix.upstream }} | awk '/^\+ / {print $2}')
+          CHERRY_ARGS=("origin/${{ matrix.target }}" "upstream/${{ matrix.upstream }}")
+          if [ -n "$LAST_PROCESSED" ]; then
+            if git cat-file -e "${LAST_PROCESSED}^{commit}" 2>/dev/null; then
+              CHERRY_ARGS+=("$LAST_PROCESSED")
+              echo "Using limit: ${LAST_PROCESSED}"
+            else
+              echo "::warning::Ignoring invalid last_processed_commit: ${LAST_PROCESSED}"
+            fi
+          fi
+          mapfile -t ALL_COMMITS < <(git cherry "${CHERRY_ARGS[@]}" | awk '/^\+ / {print $2}')
           COMMITS=()
           MERGE_SKIPPED=0
           EXCLUDED_SKIPPED=0
@@ -135,6 +146,8 @@ jobs:
       - name: Cherry-pick commits
         if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == ''
         id: cherry-pick
+        env:
+          LAST_PROCESSED: ${{ steps.sync-state.outputs.last_processed }}
         run: |
           DATE=$(date +%Y-%m-%d)
           BRANCH="upstream-sync/${{ matrix.target }}/${DATE}"
@@ -147,7 +160,15 @@ jobs:
           git checkout -b "$BRANCH"
           echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
 
-          mapfile -t SHAS < <(git cherry origin/${{ matrix.target }} upstream/${{ matrix.upstream }} | awk '/^\+ / {print $2}')
+          CHERRY_ARGS=("origin/${{ matrix.target }}" "upstream/${{ matrix.upstream }}")
+          if [ -n "$LAST_PROCESSED" ]; then
+            if git cat-file -e "${LAST_PROCESSED}^{commit}" 2>/dev/null; then
+              CHERRY_ARGS+=("$LAST_PROCESSED")
+            else
+              echo "::warning::Ignoring invalid last_processed_commit: ${LAST_PROCESSED}"
+            fi
+          fi
+          mapfile -t SHAS < <(git cherry "${CHERRY_ARGS[@]}" | awk '/^\+ / {print $2}')
           TOTAL=${#SHAS[@]}
           APPLIED=0
           EXCLUDED=0
