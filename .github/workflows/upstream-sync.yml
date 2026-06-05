@@ -89,8 +89,12 @@ jobs:
         run: |
           CHERRY_ARGS=("origin/${{ matrix.target }}" "upstream/${{ matrix.upstream }}")
           if [ -n "$LAST_PROCESSED" ]; then
-            CHERRY_ARGS+=("$LAST_PROCESSED")
-            echo "Using limit: ${LAST_PROCESSED}"
+            if git cat-file -e "${LAST_PROCESSED}^{commit}" 2>/dev/null; then
+              CHERRY_ARGS+=("$LAST_PROCESSED")
+              echo "Using limit: ${LAST_PROCESSED}"
+            else
+              echo "::warning::Ignoring invalid last_processed_commit: ${LAST_PROCESSED}"
+            fi
           fi
           mapfile -t ALL_COMMITS < <(git cherry "${CHERRY_ARGS[@]}" | awk '/^\+ / {print $2}')
           COMMITS=()
@@ -158,7 +162,11 @@ jobs:
 
           CHERRY_ARGS=("origin/${{ matrix.target }}" "upstream/${{ matrix.upstream }}")
           if [ -n "$LAST_PROCESSED" ]; then
-            CHERRY_ARGS+=("$LAST_PROCESSED")
+            if git cat-file -e "${LAST_PROCESSED}^{commit}" 2>/dev/null; then
+              CHERRY_ARGS+=("$LAST_PROCESSED")
+            else
+              echo "::warning::Ignoring invalid last_processed_commit: ${LAST_PROCESSED}"
+            fi
           fi
           mapfile -t SHAS < <(git cherry "${CHERRY_ARGS[@]}" | awk '/^\+ / {print $2}')
           TOTAL=${#SHAS[@]}
