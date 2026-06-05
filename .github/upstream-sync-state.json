@@ -1,4 +1,6 @@
 {
   "last_processed_commit": "eee3bfdcb606701059bcd5d32d2b260674fae5e8",
-  "excluded_commits": {}
+  "excluded_commits": {
+    "fb3a7a870592f1a7c75eaf2dff56652f2fa4a854": "golang.org/x/net v0.53.0 — already at v0.55.0 on main"
+  }
 }
