@@ -1,6 +1,7 @@
 {
   "last_processed_commit": "c03eef6448524e57acd66f184aa42764e396b264",
   "excluded_commits": {
-    "fb3a7a870592f1a7c75eaf2dff56652f2fa4a854": "superseded: main already has x/net v0.55.0; this v0.53.0 bump conflicts"
+    "fb3a7a870592f1a7c75eaf2dff56652f2fa4a854": "superseded: main already has x/net v0.55.0; this v0.53.0 bump conflicts",
+    "e903802131fc5bb0e4fb0194d3d55818b5c28234": "manually cherry-picked with conflict resolution in PR #312"
   }
 }
