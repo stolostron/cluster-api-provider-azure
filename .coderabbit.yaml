@@ -343,10 +343,7 @@ knowledge_base:
   code_guidelines:
     enabled: true
     filePatterns:
-      - "**/AGENTS.md"
       - "**/REDHAT.md"
-      - "**/CLAUDE.md"
-      - "**/CONTRIBUTING.md"
 
   issues:
     scope: "auto"
