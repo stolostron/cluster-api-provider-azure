@@ -160,7 +160,7 @@ reviews:
         - Audit trail for all inter-agent communication
 
     # ── LLM interaction ──────────────────────────────────────────
-    - path: "**/{llm,prompt,chat,completion}**/*"
+    - path: "**/{llm,prompt,chat,completion}/**/*"
       instructions: |
         LLM security (prodsec-skills):
         - Prompt injection: separate system/user content; never
@@ -270,6 +270,8 @@ reviews:
 
   # ── Security scanners ────────────────────────────────────────
   tools:
+    golangci-lint:
+      enabled: true
     gitleaks:
       enabled: true
     semgrep:
