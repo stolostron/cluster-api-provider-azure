@@ -171,7 +171,7 @@ reviews:
         - Guardrails: bidirectional filtering on prompts and responses
 
     # ── Supply chain & dependencies ──────────────────────────────
-    - path: "**/{requirements*.txt,Pipfile*,pyproject.toml,package*.json,go.mod,go.sum,Cargo.toml,Gemfile*,pom.xml,build.gradle*}"
+    - path: "**/{requirements*.txt,Pipfile*,pyproject.toml,package*.json,go.mod,go.sum,Cargo.toml,Cargo.lock,Gemfile*,pom.xml,build.gradle*}"
       instructions: |
         Supply chain security (prodsec-skills):
         - New deps: justify need, check license compatibility
