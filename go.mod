@@ -11,7 +11,7 @@ toolchain go1.25.11
 // Remove this once cluster-api/test is updated to use NewTextParser().
 replace github.com/prometheus/otlptranslator => github.com/prometheus/otlptranslator v0.0.0-20250717125610-8549f4ab4f8f
 
-replace github.com/Azure/azure-service-operator/v2 => github.com/marek-veber/azure-service-operator/v2 v2.13.0-hcpclusters.3
+replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.13.0-hcpclusters.9
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
