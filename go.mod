@@ -11,6 +11,10 @@ toolchain go1.25.11
 // Remove this once cluster-api/test is updated to use NewTextParser().
 replace github.com/prometheus/otlptranslator => github.com/prometheus/otlptranslator v0.0.0-20250717125610-8549f4ab4f8f
 
+// Stolostron fork of ASO adds HcpOpenShiftCluster and HcpOpenShiftClustersNodePool
+// CRDs required for ARO-HCP managed cluster provisioning via CAPZ.
+// These types are not yet available in upstream Azure/azure-service-operator.
+// Remove this once HCP resource types are upstreamed.
 replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.13.0-hcpclusters.9
 
 require (
