@@ -15,6 +15,7 @@ on:
   push:
     branches: ["main", "release-*", "backplane-2*"]
   pull_request:
+    # The branches below must be a subset of the branches above
     branches: ["main", "release-*", "backplane-2*"]
   schedule:
     - cron: "0 0 * * 1"
@@ -35,6 +36,8 @@ jobs:
       fail-fast: false
       matrix:
         language: ["actions", "go", "python"]
+        # CodeQL supports [ $supported-codeql-languages ]
+        # Learn more about CodeQL language support at https://aka.ms/codeql-docs/language-support
 
     steps:
       - name: Harden Runner
