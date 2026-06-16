@@ -2,7 +2,7 @@ module sigs.k8s.io/cluster-api-provider-azure
 
 go 1.25.0
 
-toolchain go1.25.10
+toolchain go1.25.11
 
 // Workaround for prometheus/common v0.66.0+ breaking change that causes panic
 // in cluster-api test framework's TextParser usage. Pin prometheus dependencies
@@ -11,7 +11,11 @@ toolchain go1.25.10
 // Remove this once cluster-api/test is updated to use NewTextParser().
 replace github.com/prometheus/otlptranslator => github.com/prometheus/otlptranslator v0.0.0-20250717125610-8549f4ab4f8f
 
-replace github.com/Azure/azure-service-operator/v2 => github.com/marek-veber/azure-service-operator/v2 v2.13.0-hcpclusters.3
+// Stolostron fork of ASO adds HcpOpenShiftCluster and HcpOpenShiftClustersNodePool
+// CRDs required for ARO-HCP managed cluster provisioning via CAPZ.
+// These types are not yet available in upstream Azure/azure-service-operator.
+// Remove this once HCP resource types are upstreamed.
+replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.13.0-hcpclusters.9
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
