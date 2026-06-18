@@ -28,6 +28,7 @@
         "dockerfile"
       ],
       "enabled": true,
+      "pinDigests": true,
       "matchFileNames": [
         "stolostron/Dockerfile.stolostron"
       ]
