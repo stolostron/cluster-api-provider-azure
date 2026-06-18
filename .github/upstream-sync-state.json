@@ -3,6 +3,7 @@
   "excluded_commits": {
     "fb3a7a870592f1a7c75eaf2dff56652f2fa4a854": "superseded: main already has x/net v0.55.0; this v0.53.0 bump conflicts",
     "e903802131fc5bb0e4fb0194d3d55818b5c28234": "manually cherry-picked with conflict resolution in PR #312",
-    "3ba5f1743f114fa28542193a410549bf4aeb45bf": "manually applied: fork workflows diverge; version bumps applied in sync-conflict resolution PR"
+    "3ba5f1743f114fa28542193a410549bf4aeb45bf": "manually applied: fork workflows diverge; version bumps applied in sync-conflict resolution PR",
+    "622b8554217c528970e6ffc04325b56c6b2f274d": "already cherry-picked as 57ea31898 in PR #305; re-applying conflicts with fork's codeql.yml"
   }
 }
