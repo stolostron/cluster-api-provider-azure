@@ -194,6 +194,24 @@ reviews:
         - Agentic CI actions: audit for prompt injection via
           issue/PR title/body flowing into LLM prompts
 
+    # ── IDE & AI tool configuration (supply chain risk) ─────────
+    - path: "**/{.claude,.vscode}/**/*"
+      instructions: |
+        HIGH RISK — IDE and AI tool configuration (prodsec-skills):
+        These directories can be supply chain attack vectors.
+        Review every change with a security and malware lens.
+        Flag the following for close scrutiny:
+        - .claude: hook commands, MCP server definitions, or
+          permissive tool-use policies in settings.json
+        - .claude: any scripts or binaries (e.g., .mjs, .sh)
+        - .vscode: tasks.json or launch.json entries that execute
+          code on folder open, build, or save
+        - .vscode: settings.json entries that auto-run formatters,
+          linters, or extensions with broad permissions
+        - Any change that grants broad filesystem or network access
+        - Obfuscated content or suspiciously large files
+        - Changes without a clear, legitimate purpose
+
     # ── Authentication & OAuth ───────────────────────────────────
     - path: "**/{auth,oauth,oidc,login,session,saml}/**/*"
       instructions: |
