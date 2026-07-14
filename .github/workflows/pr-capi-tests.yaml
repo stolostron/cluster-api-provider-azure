@@ -74,6 +74,8 @@ jobs:
           REPO="$GH_REPO"
           MAX_ATTEMPTS=60
           POLL_INTERVAL=60
+          MAX_CANCEL_RETRIES=15
+          CANCEL_RETRIES=0
 
           echo "Waiting for Konflux check '${CHECK_NAME}' on commit ${SHA}..."
 
@@ -81,7 +83,7 @@ jobs:
           CONCLUSION=""
           for i in $(seq 1 "$MAX_ATTEMPTS"); do
             RESULT=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" \
-              --jq ".check_runs[] | select(.name == \"${CHECK_NAME}\") | {status, conclusion}" \
+              --jq "[.check_runs[] | select(.name == \"${CHECK_NAME}\")] | sort_by(.started_at) | last | {status, conclusion}" \
               2>/dev/null || echo "")
 
             if [ -z "$RESULT" ]; then
@@ -97,6 +99,15 @@ jobs:
               if [ "$CONCLUSION" = "success" ]; then
                 echo "Konflux build succeeded!"
                 break
+              elif [ "$CONCLUSION" = "cancelled" ]; then
+                CANCEL_RETRIES=$((CANCEL_RETRIES + 1))
+                if [ "$CANCEL_RETRIES" -ge "$MAX_CANCEL_RETRIES" ]; then
+                  echo "::error::Konflux build was cancelled ${CANCEL_RETRIES} times (likely throttled). Re-push or manually re-trigger the Konflux check."
+                  exit 1
+                fi
+                echo "Attempt ${i}/${MAX_ATTEMPTS}: Konflux build cancelled (${CANCEL_RETRIES}/${MAX_CANCEL_RETRIES}), waiting for re-queue..."
+                STATUS=""
+                CONCLUSION=""
               else
                 echo "::error::Konflux build finished with conclusion: ${CONCLUSION}"
                 exit 1
