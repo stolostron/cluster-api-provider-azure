@@ -83,7 +83,7 @@ jobs:
           CONCLUSION=""
           for i in $(seq 1 "$MAX_ATTEMPTS"); do
             RESULT=$(gh api "repos/${REPO}/commits/${SHA}/check-runs" \
-              --jq "[.check_runs[] | select(.name == \"${CHECK_NAME}\")] | sort_by(.started_at) | last | {status, conclusion}" \
+              --jq "[.check_runs[] | select(.name == \"${CHECK_NAME}\")] | sort_by(.id) | last // empty | {status, conclusion}" \
               2>/dev/null || echo "")
 
             if [ -z "$RESULT" ]; then
