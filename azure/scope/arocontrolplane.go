@@ -568,7 +568,7 @@ func (s *AROControlPlaneScope) GetKeyVaultResourceID() string {
 			case strings.HasSuffix(apiVersion, "/v1api20240610preview"):
 				// v1api20240610preview: vaultName is inside activeKey
 				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "activeKey", "vaultName"}
-			case strings.HasSuffix(apiVersion, "/v1api20251223preview"):
+			case strings.HasSuffix(apiVersion, "/v1api20260630preview") || strings.HasSuffix(apiVersion, "/v1api20251223preview"):
 				// v1api20251223preview: vaultName is at kms level
 				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "vaultName"}
 			default:
