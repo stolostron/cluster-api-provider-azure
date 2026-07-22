@@ -94,6 +94,12 @@ jobs:
 
         TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW + UNKNOWN))
 
+        # Cross-check: warn if Trivy exited non-zero but all severity counts (including UNKNOWN) are 0.
+        # This can only happen if the SARIF schema has changed and our jq queries are no longer extracting data.
+        if [ "$TOTAL" -eq 0 ] && [ "${{ steps.trivy-scan.outcome }}" = "failure" ]; then
+          echo "::warning::Trivy exited non-zero but SARIF parsing found 0 vulnerabilities across all severities. The SARIF schema may have changed. Check trivy-results.sarif in the uploaded artifacts."
+        fi
+
         echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
         echo "high=$HIGH" >> "$GITHUB_OUTPUT"
         echo "medium=$MEDIUM" >> "$GITHUB_OUTPUT"
