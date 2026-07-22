@@ -79,9 +79,12 @@ jobs:
         HIGH=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "HIGH")] | length' trivy-results.sarif 2>/dev/null || echo 0)
         MEDIUM=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "MEDIUM")] | length' trivy-results.sarif 2>/dev/null || echo 0)
         LOW=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "LOW")] | length' trivy-results.sarif 2>/dev/null || echo 0)
+        # Count UNKNOWN separately: Trivy includes these in SARIF and exits non-zero even when the
+        # severity filter is CRITICAL,HIGH,MEDIUM,LOW. Counting them makes TOTAL match Trivy's exit code.
+        UNKNOWN=$(jq '[.runs[].tool.driver.rules[] | select(.properties.tags[]? == "UNKNOWN")] | length' trivy-results.sarif 2>/dev/null || echo 0)
 
         # Validate that jq produced integers (e.g., jq may return "null" on schema changes)
-        for var in CRITICAL HIGH MEDIUM LOW; do
+        for var in CRITICAL HIGH MEDIUM LOW UNKNOWN; do
           val=$(eval echo "\$$var")
           if ! echo "$val" | grep -qE '^[0-9]+$'; then
             echo "::warning::$var count is not a valid integer ('$val'). Defaulting to 0."
@@ -89,18 +92,13 @@ jobs:
           fi
         done
 
-        TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
-
-        # Cross-check: if Trivy reported vulnerabilities but we counted zero,
-        # the SARIF schema may have changed.
-        if [ "$TOTAL" -eq 0 ] && [ "${{ steps.trivy-scan.outcome }}" = "failure" ]; then
-          echo "::warning::Trivy reported vulnerabilities (exit code 1) but SARIF parsing found 0. The SARIF schema may have changed. Check trivy-results.sarif in the uploaded artifacts."
-        fi
+        TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW + UNKNOWN))
 
         echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
         echo "high=$HIGH" >> "$GITHUB_OUTPUT"
         echo "medium=$MEDIUM" >> "$GITHUB_OUTPUT"
         echo "low=$LOW" >> "$GITHUB_OUTPUT"
+        echo "unknown=$UNKNOWN" >> "$GITHUB_OUTPUT"
         echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
 
     - name: Generate summary
@@ -110,6 +108,7 @@ jobs:
         HIGH: ${{ steps.vuln-counts.outputs.high }}
         MEDIUM: ${{ steps.vuln-counts.outputs.medium }}
         LOW: ${{ steps.vuln-counts.outputs.low }}
+        UNKNOWN: ${{ steps.vuln-counts.outputs.unknown }}
         TOTAL: ${{ steps.vuln-counts.outputs.total }}
       run: |
         echo "# Trivy Security Scan Results (${{ matrix.branch }})" >> $GITHUB_STEP_SUMMARY
@@ -132,6 +131,7 @@ jobs:
           echo "| 🟠 HIGH | $HIGH |" >> $GITHUB_STEP_SUMMARY
           echo "| 🟡 MEDIUM | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
           echo "| 🟢 LOW | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| ⚪ UNKNOWN | $UNKNOWN |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ -f trivy-results.txt ]; then
             echo "### Scan Results" >> $GITHUB_STEP_SUMMARY
@@ -171,7 +171,7 @@ jobs:
         retention-days: 30
 
     - name: Create GitHub issue on vulnerability
-      if: steps.trivy-scan.outcome == 'failure' && github.event_name != 'pull_request'
+      if: steps.vuln-counts.outputs.total != '0' && steps.vuln-counts.outputs.total != '' && github.event_name != 'pull_request'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SERVER_URL: ${{ github.server_url }}
@@ -182,6 +182,7 @@ jobs:
         HIGH: ${{ steps.vuln-counts.outputs.high }}
         MEDIUM: ${{ steps.vuln-counts.outputs.medium }}
         LOW: ${{ steps.vuln-counts.outputs.low }}
+        UNKNOWN: ${{ steps.vuln-counts.outputs.unknown }}
         TOTAL: ${{ steps.vuln-counts.outputs.total }}
       run: |
         EXISTING_ISSUE=$(gh issue list --state open --label "security" --label "trivy" --label "$BRANCH" --json number --jq '.[0].number // empty') || {
@@ -207,6 +208,7 @@ jobs:
             echo "| 🟠 HIGH | $HIGH |"
             echo "| 🟡 MEDIUM | $MEDIUM |"
             echo "| 🟢 LOW | $LOW |"
+            echo "| ⚪ UNKNOWN | $UNKNOWN |"
             echo "| **TOTAL** | **$TOTAL** |"
             echo ""
             echo "### Latest Scan Results"
@@ -244,6 +246,7 @@ jobs:
             echo "| **🟠 HIGH** | $HIGH |"
             echo "| **🟡 MEDIUM** | $MEDIUM |"
             echo "| **🟢 LOW** | $LOW |"
+            echo "| **⚪ UNKNOWN** | $UNKNOWN |"
             echo "| **TOTAL** | **$TOTAL** |"
             echo "| **Workflow Run** | [${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}) |"
             echo "| **Date** | $(date -u +"%Y-%m-%d %H:%M:%S UTC") |"
@@ -284,5 +287,5 @@ jobs:
         fi
 
     - name: Fail if vulnerabilities found
-      if: steps.trivy-scan.outcome == 'failure'
+      if: steps.vuln-counts.outputs.total != '0' && steps.vuln-counts.outputs.total != ''
       run: exit 1
