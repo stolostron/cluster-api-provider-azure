@@ -54,7 +54,7 @@ jobs:
         scan-ref: '.'
         format: 'table'
         output: 'trivy-results.txt'
-        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+        severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
       continue-on-error: true
       id: trivy-table
 
@@ -293,5 +293,5 @@ jobs:
         fi
 
     - name: Fail if vulnerabilities found
-      if: steps.vuln-counts.outputs.total != '0' && steps.vuln-counts.outputs.total != ''
+      if: (steps.vuln-counts.outputs.total != '0' && steps.vuln-counts.outputs.total != '') || steps.trivy-scan.outcome == 'failure'
       run: exit 1
