@@ -11,6 +11,9 @@ WORKDIR /workspace
 
 ENV GOFLAGS="-buildvcs=false"
 
+ARG MCE_VERSION=dev
+ARG GIT_COMMIT=unknown
+
 COPY ./ ./
 
 # Cache deps before building and copying source so that we don't need to re-download as much
@@ -23,7 +26,10 @@ RUN  --mount=type=cache,target=/root/.local/share/golang \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.local/share/golang \
-    CGO_ENABLED=1 GOOS=linux GOARCH=${ARCH} go build -o ./manager .
+    SHORT_COMMIT=$(echo "${GIT_COMMIT}" | cut -c1-7) && \
+    CGO_ENABLED=1 GOOS=linux GOARCH=${ARCH} \
+    go build -ldflags "-X 'sigs.k8s.io/cluster-api-provider-azure/version.gitVersion=${MCE_VERSION}-${SHORT_COMMIT}'" \
+    -o ./manager .
 
 # Copy the aso-controller into a thin image
 FROM registry.access.redhat.com/ubi9/ubi:9.8-1785388874@sha256:aecc1f893388841178ce0276e2f7b087e63e1e4521ec86a96d9c9416c6d419fa
