@@ -127,7 +127,7 @@ jobs:
         if: steps.find-commits.outputs.count != '0'
         id: existing-pr
         env:
-          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+          GH_TOKEN: ${{ github.token }}
           TARGET: ${{ matrix.target }}
         run: |
           PR_NUMBER="$(
@@ -308,7 +308,7 @@ jobs:
       - name: Push and create draft PR
         if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied != '0'
         env:
-          GH_TOKEN: ${{ secrets.SYNC_PAT }}
+          GH_TOKEN: ${{ github.token }}
           SYNC_BRANCH: ${{ steps.cherry-pick.outputs.branch }}
           APPLIED: ${{ steps.cherry-pick.outputs.applied }}
           TOTAL: ${{ steps.cherry-pick.outputs.total }}
