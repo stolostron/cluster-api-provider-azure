@@ -132,6 +132,7 @@ jobs:
         run: |
           PR_NUMBER="$(
             gh pr list \
+              --repo stolostron/cluster-api-provider-azure \
               --state open \
               --base "$TARGET" \
               --json number,headRefName \
@@ -295,7 +296,6 @@ jobs:
       - name: Push state update when all commits were skipped
         if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied == '0' && steps.cherry-pick.outputs.skipped != '0'
         env:
-          GH_TOKEN: ${{ secrets.SYNC_PAT }}
           SYNC_BRANCH: ${{ steps.cherry-pick.outputs.branch }}
           TARGET: ${{ matrix.target }}
         run: |
@@ -380,6 +380,7 @@ jobs:
           } > /tmp/pr-body.md
 
           gh pr create \
+            --repo stolostron/cluster-api-provider-azure \
             --title "Upstream sync ${TARGET} ← ${UPSTREAM} (${DATE}): ${APPLIED}/${TOTAL} commits" \
             --body-file /tmp/pr-body.md \
             --base "$TARGET" \
