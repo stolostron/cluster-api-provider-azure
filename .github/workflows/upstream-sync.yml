@@ -132,6 +132,7 @@ jobs:
         run: |
           PR_NUMBER="$(
             gh pr list \
+              --repo stolostron/cluster-api-provider-azure \
               --state open \
               --base "$TARGET" \
               --json number,headRefName \
@@ -379,6 +380,7 @@ jobs:
           } > /tmp/pr-body.md
 
           gh pr create \
+            --repo stolostron/cluster-api-provider-azure \
             --title "Upstream sync ${TARGET} ← ${UPSTREAM} (${DATE}): ${APPLIED}/${TOTAL} commits" \
             --body-file /tmp/pr-body.md \
             --base "$TARGET" \
