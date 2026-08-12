@@ -7,6 +7,12 @@ resources:
   - crds.yaml
   - settings.yaml
 patches:
+  - path: patches/migrate_stored_versions.yaml
+    target:
+      group: apps
+      kind: Deployment
+      name: azureserviceoperator-controller-manager
+      version: v1
   - patch: |- # default kustomization includes a namespace already
       $patch: delete
       apiVersion: v1
