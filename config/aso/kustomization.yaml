@@ -45,6 +45,47 @@ patches:
       kind: Deployment
       name: azureserviceoperator-controller-manager
       version: v1
+  - patch: |- # Grant the ASO controller's SA permission to delete the CRDs it
+      # manages. The migrate-aso-crd-stored-versions init container deletes
+      # CRDs that have stale entries in status.storedVersions which the new
+      # bundle no longer lists in spec.versions; the new ASO controller then
+      # re-creates them from its bundled definitions.
+      - op: test
+        path: /rules/0/resources/0
+        value: customresourcedefinitions
+      - op: add
+        path: /rules/-
+        value:
+          apiGroups:
+            - apiextensions.k8s.io
+          resources:
+            - customresourcedefinitions
+          resourceNames:
+            - fleetsmembers.containerservice.azure.com
+            - maintenanceconfigurations.containerservice.azure.com
+            - managedclusters.containerservice.azure.com
+            - managedclustersagentpools.containerservice.azure.com
+            - extensions.kubernetesconfiguration.azure.com
+            - bastionhosts.network.azure.com
+            - natgateways.network.azure.com
+            - privateendpoints.network.azure.com
+            - virtualnetworks.network.azure.com
+            - virtualnetworkssubnets.network.azure.com
+            - resourcegroups.resources.azure.com
+            - networksecuritygroups.network.azure.com
+            - roleassignments.authorization.azure.com
+            - userassignedidentities.managedidentity.azure.com
+            - vaults.keyvault.azure.com
+            - hcpopenshiftclusters.redhatopenshift.azure.com
+            - hcpopenshiftclustersnodepools.redhatopenshift.azure.com
+            - hcpopenshiftclustersexternalauths.redhatopenshift.azure.com
+          verbs:
+            - delete
+    target:
+      group: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: azureserviceoperator-crd-manager-role
+      version: v1
 replacements:
   - source:
       fieldPath: metadata.namespace
