@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
+	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
 	"sigs.k8s.io/cluster-api-provider-azure/controllers"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infra "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
@@ -362,7 +364,7 @@ func (r *AROClusterReconciler) reconcileNormal(ctx context.Context, aroCluster *
 		conditions.Set(aroCluster, metav1.Condition{
 			Type:   string(infrav1.NetworkInfrastructureReadyCondition),
 			Status: metav1.ConditionTrue,
-			Reason: "Succeeded",
+			Reason: scope.ProvisioningStateSucceeded,
 		})
 	} else {
 		if !aroCluster.Spec.ControlPlaneEndpoint.IsZero() {
@@ -427,8 +429,8 @@ func (r *AROClusterReconciler) reconcileDelete(ctx context.Context, aroCluster *
 
 		// Wait for all resources to be deleted before removing finalizer
 		if len(aroCluster.Status.Resources) > 0 {
-			log.V(4).Info("waiting for resources to be deleted", "remainingResources", len(aroCluster.Status.Resources))
-			return ctrl.Result{}, nil
+			log.Info("waiting for resources to be deleted", "remainingResources", len(aroCluster.Status.Resources))
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 	}
 
