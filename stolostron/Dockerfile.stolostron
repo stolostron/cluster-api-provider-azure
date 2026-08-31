@@ -1,4 +1,4 @@
-FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.26 AS toolchain
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.26@sha256:e74b03198cccc24c24a27071ad4d6c2edcfe0bb10c6de99c609ce6e3c06d6d04 AS toolchain
 
 # Run this with docker build --build_arg $(go env GOPROXY) to override the goproxy
 ARG goproxy=https://proxy.golang.org
@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -o ./manager .
 
 # Copy the aso-controller into a thin image
-FROM registry.redhat.io/ubi9/ubi-minimal-pqc:9.8-1787695851
+FROM registry.redhat.io/ubi9/ubi-minimal-pqc:9.8-1787695851@sha256:ef0438e9f078e71a7317c247fdf1d09644441fefe1fe26efbde5f4fa201435fb
 COPY --from=builder /workspace/manager /manager
 USER 65532:65532
 ENTRYPOINT ["/manager"]
