@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20251223preview"
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview"
+	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260901preview"
 	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -450,7 +450,7 @@ func TestProviderIDListSync_BaseDomainPrefixDiffersFromCAPIName(t *testing.T) {
 }
 
 // TestProviderIDListSync_BaseDomainPrefixV1api20251223preview tests the fallback
-// branch of getBaseDomainPrefix that reads from the v1api20260630preview
+// branch of getBaseDomainPrefix that reads from the v1api20260901preview
 // HcpOpenShiftCluster when the v1api20251223preview version is not present.
 func TestProviderIDListSync_BaseDomainPrefixV1api20251223preview(t *testing.T) {
 	g := NewWithT(t)
@@ -487,7 +487,7 @@ func TestProviderIDListSync_BaseDomainPrefixV1api20251223preview(t *testing.T) {
 		WithObjects(&nodes[0]).
 		Build()
 
-	// Use v1api20260630preview node pool
+	// Use v1api20260901preview node pool
 	nodePoolV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersNodePool{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "HcpOpenShiftClustersNodePool",
@@ -510,7 +510,7 @@ func TestProviderIDListSync_BaseDomainPrefixV1api20251223preview(t *testing.T) {
 		},
 	}
 
-	// Use v1api20260630preview HcpOpenShiftCluster (NOT v1api20251223preview)
+	// Use v1api20260901preview HcpOpenShiftCluster (NOT v1api20251223preview)
 	hcpClusterV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftCluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterName,
@@ -552,7 +552,7 @@ func TestProviderIDListSync_BaseDomainPrefixV1api20251223preview(t *testing.T) {
 	aroCluster := createTestAROCluster(namespace, clusterName)
 	aroClusterIdentity := createTestAROClusterIdentity(namespace)
 
-	// Only register v1api20260630preview — v1api20251223preview is NOT in the scheme
+	// Only register v1api20260901preview — v1api20251223preview is NOT in the scheme
 	mgmtScheme := runtime.NewScheme()
 	_ = infrav1.AddToScheme(mgmtScheme)
 	_ = infrav2exp.AddToScheme(mgmtScheme)

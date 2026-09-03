@@ -565,7 +565,7 @@ func (s *AROControlPlaneScope) GetKeyVaultResourceID() string {
 			apiVersion := unstructuredResource.GetAPIVersion()
 			var vaultNamePath []string
 			switch {
-			case strings.HasSuffix(apiVersion, "/v1api20260630preview") || strings.HasSuffix(apiVersion, "/v1api20251223preview"):
+			case strings.HasSuffix(apiVersion, "/v1api20260901preview") || strings.HasSuffix(apiVersion, "/v1api20251223preview"):
 				vaultNamePath = []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms", "vaultName"}
 			default:
 				// Unknown API version — use latest known path, but log for observability

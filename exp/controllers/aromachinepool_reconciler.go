@@ -23,7 +23,7 @@ import (
 	"time"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20251223preview"
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview"
+	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260901preview"
 	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -175,7 +175,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 			replicas = nodePoolV1.Status.Properties.Replicas
 		}
 	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
-		// Not found, API version not served, or scheme error - try v1api20260630preview
+		// Not found, API version not served, or scheme error - try v1api20260901preview
 		nodePoolV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersNodePool{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.InfraMachinePool.Namespace,
@@ -183,7 +183,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 		}, nodePoolV2)
 
 		if err == nil {
-			// Found v1api20260630preview version
+			// Found v1api20260901preview version
 			statusID = nodePoolV2.Status.Id
 			statusConditions = nodePoolV2.Status.Conditions
 			azureName = nodePoolV2.Spec.AzureName
@@ -197,7 +197,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 				replicas = nodePoolV2.Status.Properties.Replicas
 			}
 		} else {
-			// v1api20260630preview also failed
+			// v1api20260901preview also failed
 			if apierrors.IsNotFound(err) || isSchemeError(err) {
 				// NodePool doesn't exist yet - set a condition and continue
 				conditions.Set(s.scope.InfraMachinePool, metav1.Condition{
@@ -487,7 +487,7 @@ func (s *aroMachinePoolService) getBaseDomainPrefix(ctx context.Context) (string
 		}
 		return "", nil
 	} else if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) && !isSchemeError(err) {
-		return "", errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20260630preview)")
+		return "", errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20260901preview)")
 	}
 
 	return "", nil
