@@ -21,7 +21,7 @@ import (
 	"errors"
 	"testing"
 
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview"
+	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260901preview"
 	"github.com/google/go-cmp/cmp"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -233,7 +233,7 @@ func TestSetHcpOpenShiftNodePoolDefaults(t *testing.T) {
 						{
 							Raw: mustMarshalJSON(&unstructured.Unstructured{
 								Object: map[string]interface{}{
-									"apiVersion": "redhatopenshift.azure.com/v1api20260630preview",
+									"apiVersion": "redhatopenshift.azure.com/v1api20260901preview",
 									"kind":       "HcpOpenShiftClustersNodePool",
 									"metadata": map[string]interface{}{
 										"name": "test-nodepool",
@@ -265,7 +265,7 @@ func TestSetHcpOpenShiftNodePoolDefaults(t *testing.T) {
 						{
 							Raw: mustMarshalJSON(&unstructured.Unstructured{
 								Object: map[string]interface{}{
-									"apiVersion": "redhatopenshift.azure.com/v1api20260630preview",
+									"apiVersion": "redhatopenshift.azure.com/v1api20260901preview",
 									"kind":       "HcpOpenShiftClustersNodePool",
 									"metadata": map[string]interface{}{
 										"name": "test-nodepool",

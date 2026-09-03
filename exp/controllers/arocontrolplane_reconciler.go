@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	asoredhatopenshiftv1hub "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview/storage"
+	asoredhatopenshiftv1hub "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260901preview/storage"
 	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -528,7 +528,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 		log.V(4).Info("HcpOpenShiftCluster not found yet, skipping status extraction", "name", hcpClusterName)
 		return nil
 	} else {
-		return errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20260630preview)")
+		return errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20260901preview)")
 	}
 
 	// Extract status information from HcpOpenShiftCluster
@@ -920,15 +920,15 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 	if err := s.kubeclient.List(ctx, nodePoolList, client.InNamespace(s.scope.Namespace())); err != nil {
 		// Ignore NotFound, NoMatch, and scheme registration errors (when types not in scheme)
 		if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) && !isSchemeError(err) {
-			return nil, false, fmt.Errorf("failed to list HcpOpenShiftClustersNodePool resources (v1api20260630preview): %w", err)
+			return nil, false, fmt.Errorf("failed to list HcpOpenShiftClustersNodePool resources (v1api20260901preview): %w", err)
 		}
 	} else {
-		log.V(4).Info("Checking node pool readiness (v1api20260630preview)", "nodePoolCount", len(nodePoolList.Items))
+		log.V(4).Info("Checking node pool readiness (v1api20260901preview)", "nodePoolCount", len(nodePoolList.Items))
 		for _, nodePool := range nodePoolList.Items {
 			for _, condition := range nodePool.Status.Conditions {
 				if condition.Type == asoconditions.ConditionTypeReady && condition.Status == metav1.ConditionTrue {
 					hasReadyNodePool = true
-					log.V(4).Info("Found ready node pool (v1api20260630preview)", "name", nodePool.Name)
+					log.V(4).Info("Found ready node pool (v1api20260901preview)", "name", nodePool.Name)
 					break
 				}
 			}

@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview"
-	asoredhatopenshiftv1hub "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview/storage"
+	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260901preview"
+	asoredhatopenshiftv1hub "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260901preview/storage"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
@@ -113,7 +113,7 @@ func createTestScopeWithOptions(t *testing.T, kubeconfigData *string, createKube
 			Resources: []runtime.RawExtension{
 				{
 					Raw: []byte(`{
-						"apiVersion": "redhatopenshift.azure.com/v1api20260630preview",
+						"apiVersion": "redhatopenshift.azure.com/v1api20260901preview",
 						"kind": "HcpOpenShiftCluster",
 						"metadata": {"name": "test-cluster"},
 						"spec": {"location": "eastus", "properties": {"spec": {"version": {"id": "4.14"}}}}
