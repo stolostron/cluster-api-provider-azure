@@ -23,7 +23,7 @@ import (
 	"time"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20251223preview"
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview"
+	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260901preview"
 	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -525,7 +525,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 			}
 		}
 	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
-		// Not found or API version not served, try v1api20260630preview
+		// Not found or API version not served, try v1api20260901preview
 		hcpClusterV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftCluster{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.ControlPlane.Namespace,
@@ -533,7 +533,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 		}, hcpClusterV2)
 
 		if err == nil {
-			// Found v1api20260630preview version
+			// Found v1api20260901preview version
 			statusID = hcpClusterV2.Status.Id
 			statusConditions = hcpClusterV2.Status.Conditions
 			if hcpClusterV2.Status.Properties != nil {
@@ -558,7 +558,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 			log.V(4).Info("HcpOpenShiftCluster not found yet, skipping status extraction", "name", hcpClusterName)
 			return nil
 		} else {
-			return errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20260630preview)")
+			return errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20260901preview)")
 		}
 	} else {
 		return errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20251223preview)")
@@ -689,7 +689,7 @@ func (s *aroControlPlaneService) setExternalAuthCondition(ctx context.Context, r
 		externalAuthAnnotations = externalAuthV1.GetAnnotations()
 		externalAuthConditions = externalAuthV1.Status.Conditions
 	} else if client.IgnoreNotFound(err) == nil {
-		// Not found, try v1api20260630preview
+		// Not found, try v1api20260901preview
 		externalAuthV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersExternalAuth{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.ControlPlane.Namespace,
@@ -697,7 +697,7 @@ func (s *aroControlPlaneService) setExternalAuthCondition(ctx context.Context, r
 		}, externalAuthV2)
 
 		if err == nil {
-			// Found v1api20260630preview version
+			// Found v1api20260901preview version
 			externalAuthAnnotations = externalAuthV2.GetAnnotations()
 			externalAuthConditions = externalAuthV2.Status.Conditions
 		}
@@ -988,21 +988,21 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 		}
 	}
 
-	// Check v1api20260630preview node pools if not already found
+	// Check v1api20260901preview node pools if not already found
 	if !hasReadyNodePool {
 		nodePoolListV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersNodePoolList{}
 		if err := s.kubeclient.List(ctx, nodePoolListV2, client.InNamespace(s.scope.Namespace())); err != nil {
 			// Ignore NotFound, NoMatch, and scheme registration errors (when types not in scheme)
 			if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) && !isSchemeError(err) {
-				return nil, false, fmt.Errorf("failed to list HcpOpenShiftClustersNodePool resources (v1api20260630preview): %w", err)
+				return nil, false, fmt.Errorf("failed to list HcpOpenShiftClustersNodePool resources (v1api20260901preview): %w", err)
 			}
 		} else {
-			log.V(4).Info("Checking node pool readiness (v1api20260630preview)", "nodePoolCount", len(nodePoolListV2.Items))
+			log.V(4).Info("Checking node pool readiness (v1api20260901preview)", "nodePoolCount", len(nodePoolListV2.Items))
 			for _, nodePool := range nodePoolListV2.Items {
 				for _, condition := range nodePool.Status.Conditions {
 					if condition.Type == asoconditions.ConditionTypeReady && condition.Status == metav1.ConditionTrue {
 						hasReadyNodePool = true
-						log.V(4).Info("Found ready node pool (v1api20260630preview)", "name", nodePool.Name)
+						log.V(4).Info("Found ready node pool (v1api20260901preview)", "name", nodePool.Name)
 						break
 					}
 				}
@@ -1071,7 +1071,7 @@ func (s *aroControlPlaneService) externalAuthExists(ctx context.Context, name st
 		return true
 	}
 
-	// Not found or error, try v1api20260630preview
+	// Not found or error, try v1api20260901preview
 	if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
 		externalAuthV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersExternalAuth{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
@@ -1080,7 +1080,7 @@ func (s *aroControlPlaneService) externalAuthExists(ctx context.Context, name st
 		}, externalAuthV2)
 
 		if err == nil {
-			// Found v1api20260630preview version
+			// Found v1api20260901preview version
 			return true
 		}
 	}

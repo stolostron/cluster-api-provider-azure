@@ -5,10 +5,10 @@ go 1.25.7
 toolchain go1.25.12
 
 // These types are not yet available in upstream Azure/azure-service-operator.
-replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.18.0-hcpclusters.1
+replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.18.0-hcpclusters.2
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/authorization/armauthorization/v2 v2.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v5 v5.7.0
