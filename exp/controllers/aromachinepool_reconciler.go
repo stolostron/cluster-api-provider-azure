@@ -22,7 +22,7 @@ import (
 	"slices"
 	"time"
 
-	asoredhatopenshiftv1hub "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview/storage"
+	asoredhatopenshiftv1hub "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260901preview/storage"
 	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -445,7 +445,7 @@ func (s *aroMachinePoolService) getBaseDomainPrefix(ctx context.Context) (string
 		}
 		return "", nil
 	} else if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) && !isSchemeError(err) {
-		return "", errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20260630preview)")
+		return "", errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20260901preview)")
 	}
 
 	return "", nil
