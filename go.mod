@@ -5,7 +5,7 @@ go 1.25.7
 toolchain go1.25.12
 
 // These types are not yet available in upstream Azure/azure-service-operator.
-replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.18.0-hcpclusters.2
+replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.18.0-hcpclusters.3
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
