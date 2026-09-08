@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -31,7 +31,7 @@ import (
 func hcpClusterUnstructured(tags map[string]interface{}) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{
 		Object: map[string]interface{}{
-			"apiVersion": asoredhatopenshiftv1api2026.GroupVersion.String(),
+			"apiVersion": asoredhatopenshiftv2026.GroupVersion.String(),
 			"kind":       scope.HcpClusterKindName,
 			"metadata": map[string]interface{}{
 				"name": "test-hcp-cluster",
@@ -48,7 +48,7 @@ func hcpClusterUnstructured(tags map[string]interface{}) *unstructured.Unstructu
 func nodePoolUnstructured(tags map[string]interface{}) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{
 		Object: map[string]interface{}{
-			"apiVersion": asoredhatopenshiftv1api2026.GroupVersion.String(),
+			"apiVersion": asoredhatopenshiftv2026.GroupVersion.String(),
 			"kind":       scope.HcpNodePoolKindName,
 			"metadata": map[string]interface{}{
 				"name": "test-nodepool",
