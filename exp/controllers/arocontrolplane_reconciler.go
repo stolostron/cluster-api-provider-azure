@@ -23,7 +23,7 @@ import (
 	"time"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20251223preview"
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
 	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -302,7 +302,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 		}
 
 		if (u.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-			u.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+			u.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 			u.GroupVersionKind().Kind == "HcpOpenShiftCluster" {
 			// Check if etcd.dataEncryption.customerManaged.kms is configured
 			etcdPath := []string{"spec", "properties", "etcd", "dataEncryption", "customerManaged", "kms"}
@@ -440,7 +440,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 	hasExternalAuthInSpec := false
 	for _, resource := range resources {
 		if (resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-			resource.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+			resource.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
 			hasExternalAuthInSpec = true
 			break
@@ -484,7 +484,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 	var hcpClusterName string
 	for _, resource := range resources {
 		if (resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-			resource.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+			resource.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 			resource.GroupVersionKind().Kind == "HcpOpenShiftCluster" {
 			hcpClusterName = resource.GetName()
 			break
@@ -526,7 +526,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 		}
 	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
 		// Not found or API version not served, try v20260901preview
-		hcpClusterV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftCluster{}
+		hcpClusterV2 := &asoredhatopenshiftv2026.HcpOpenShiftCluster{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.ControlPlane.Namespace,
 			Name:      hcpClusterName,
@@ -633,7 +633,7 @@ func (s *aroControlPlaneService) reconcileResources(ctx context.Context) error {
 	hasExternalAuth := false
 	for _, resource := range resources {
 		if (resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-			resource.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+			resource.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
 			hasExternalAuth = true
 			break
@@ -661,7 +661,7 @@ func (s *aroControlPlaneService) setExternalAuthCondition(ctx context.Context, r
 	var externalAuthName string
 	for _, resource := range resources {
 		if (resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-			resource.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+			resource.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
 			externalAuthName = resource.GetName()
 			break
@@ -690,7 +690,7 @@ func (s *aroControlPlaneService) setExternalAuthCondition(ctx context.Context, r
 		externalAuthConditions = externalAuthV1.Status.Conditions
 	} else if client.IgnoreNotFound(err) == nil {
 		// Not found, try v20260901preview
-		externalAuthV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersExternalAuth{}
+		externalAuthV2 := &asoredhatopenshiftv2026.HcpOpenShiftClustersExternalAuth{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.ControlPlane.Namespace,
 			Name:      externalAuthName,
@@ -990,7 +990,7 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 
 	// Check v20260901preview node pools if not already found
 	if !hasReadyNodePool {
-		nodePoolListV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersNodePoolList{}
+		nodePoolListV2 := &asoredhatopenshiftv2026.HcpOpenShiftClustersNodePoolList{}
 		if err := s.kubeclient.List(ctx, nodePoolListV2, client.InNamespace(s.scope.Namespace())); err != nil {
 			// Ignore NotFound, NoMatch, and scheme registration errors (when types not in scheme)
 			if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) && !isSchemeError(err) {
@@ -1026,7 +1026,7 @@ func (s *aroControlPlaneService) filterExternalAuthUntilNodePoolReady(ctx contex
 	filteredCount := 0
 	for _, resource := range resources {
 		if (resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-			resource.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+			resource.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 			resource.GroupVersionKind().Kind == hcpOpenShiftClustersExternalAuthKind {
 			// Check if this ExternalAuth resource already exists in the cluster
 			existsInCluster := s.externalAuthExists(ctx, resource.GetName())
@@ -1073,7 +1073,7 @@ func (s *aroControlPlaneService) externalAuthExists(ctx context.Context, name st
 
 	// Not found or error, try v20260901preview
 	if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
-		externalAuthV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersExternalAuth{}
+		externalAuthV2 := &asoredhatopenshiftv2026.HcpOpenShiftClustersExternalAuth{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.ControlPlane.Namespace,
 			Name:      name,

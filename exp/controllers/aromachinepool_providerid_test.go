@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20251223preview"
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
 	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -488,37 +488,37 @@ func TestProviderIDListSync_BaseDomainPrefixV1api20251223preview(t *testing.T) {
 		Build()
 
 	// Use v20260901preview node pool
-	nodePoolV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersNodePool{
+	nodePoolV2 := &asoredhatopenshiftv2026.HcpOpenShiftClustersNodePool{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "HcpOpenShiftClustersNodePool",
-			APIVersion: asoredhatopenshiftv1api2026.GroupVersion.String(),
+			APIVersion: asoredhatopenshiftv2026.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      nodePoolName,
 			Namespace: namespace,
 		},
-		Spec: asoredhatopenshiftv1api2026.HcpOpenShiftClustersNodePool_Spec{
+		Spec: asoredhatopenshiftv2026.HcpOpenShiftClustersNodePool_Spec{
 			AzureName: azureName,
 			Owner: &genruntime.KnownResourceReference{
 				Name: clusterName,
 			},
 		},
-		Status: asoredhatopenshiftv1api2026.HcpOpenShiftClustersNodePool_STATUS{
-			Properties: &asoredhatopenshiftv1api2026.NodePoolProperties_STATUS{
+		Status: asoredhatopenshiftv2026.HcpOpenShiftClustersNodePool_STATUS{
+			Properties: &asoredhatopenshiftv2026.NodePoolProperties_STATUS{
 				Replicas: ptr.To(1),
 			},
 		},
 	}
 
 	// Use v20260901preview HcpOpenShiftCluster (NOT v1api20251223preview)
-	hcpClusterV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftCluster{
+	hcpClusterV2 := &asoredhatopenshiftv2026.HcpOpenShiftCluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      clusterName,
 			Namespace: namespace,
 		},
-		Status: asoredhatopenshiftv1api2026.HcpOpenShiftCluster_STATUS{
-			Properties: &asoredhatopenshiftv1api2026.HcpOpenShiftClusterProperties_STATUS{
-				Dns: &asoredhatopenshiftv1api2026.DnsProfile_STATUS{
+		Status: asoredhatopenshiftv2026.HcpOpenShiftCluster_STATUS{
+			Properties: &asoredhatopenshiftv2026.HcpOpenShiftClusterProperties_STATUS{
+				Dns: &asoredhatopenshiftv2026.DnsProfile_STATUS{
 					BaseDomainPrefix: ptr.To(baseDomainPrefix),
 				},
 			},
@@ -558,7 +558,7 @@ func TestProviderIDListSync_BaseDomainPrefixV1api20251223preview(t *testing.T) {
 	_ = infrav2exp.AddToScheme(mgmtScheme)
 	_ = cplane.AddToScheme(mgmtScheme)
 	_ = clusterv1.AddToScheme(mgmtScheme)
-	_ = asoredhatopenshiftv1api2026.AddToScheme(mgmtScheme)
+	_ = asoredhatopenshiftv2026.AddToScheme(mgmtScheme)
 
 	mgmtClient := fake.NewClientBuilder().
 		WithScheme(mgmtScheme).
