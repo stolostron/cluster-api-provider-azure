@@ -23,7 +23,7 @@ import (
 	"time"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20251223preview"
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
 	asoconditions "github.com/Azure/azure-service-operator/v2/pkg/genruntime/conditions"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -134,7 +134,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 	var nodePoolName string
 	for _, resource := range resources {
 		if (resource.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-			resource.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+			resource.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 			resource.GroupVersionKind().Kind == "HcpOpenShiftClustersNodePool" {
 			nodePoolName = resource.GetName()
 			break
@@ -176,7 +176,7 @@ func (s *aroMachinePoolService) reconcileResources(ctx context.Context) error {
 		}
 	} else if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || isSchemeError(err) {
 		// Not found, API version not served, or scheme error - try v20260901preview
-		nodePoolV2 := &asoredhatopenshiftv1api2026.HcpOpenShiftClustersNodePool{}
+		nodePoolV2 := &asoredhatopenshiftv2026.HcpOpenShiftClustersNodePool{}
 		err = s.kubeclient.Get(ctx, client.ObjectKey{
 			Namespace: s.scope.InfraMachinePool.Namespace,
 			Name:      nodePoolName,
@@ -480,7 +480,7 @@ func (s *aroMachinePoolService) getBaseDomainPrefix(ctx context.Context) (string
 		return "", errors.Wrap(err, "failed to get HcpOpenShiftCluster (v1api20251223preview)")
 	}
 
-	v2 := &asoredhatopenshiftv1api2026.HcpOpenShiftCluster{}
+	v2 := &asoredhatopenshiftv2026.HcpOpenShiftCluster{}
 	if err := s.kubeclient.Get(ctx, name, v2); err == nil {
 		if v2.Status.Properties != nil && v2.Status.Properties.Dns != nil && v2.Status.Properties.Dns.BaseDomainPrefix != nil {
 			return *v2.Status.Properties.Dns.BaseDomainPrefix, nil

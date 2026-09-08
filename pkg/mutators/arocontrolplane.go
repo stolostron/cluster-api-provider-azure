@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	asoredhatopenshiftv1 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20251223preview"
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
@@ -203,7 +203,7 @@ func SetHcpOpenShiftClusterDefaults(_ client.Client, _ *controlv1.AROControlPlan
 		var hcpClusterName string
 		for i, u := range us {
 			if (u.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-				u.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+				u.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 				u.GroupVersionKind().Kind == "HcpOpenShiftCluster" {
 				hcpCluster = u
 				hcpClusterName = u.GetName()
@@ -223,7 +223,7 @@ func SetHcpOpenShiftClusterDefaults(_ client.Client, _ *controlv1.AROControlPlan
 		// Set owner references for HcpOpenShiftClustersExternalAuth resources
 		for i, u := range us {
 			if (u.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-				u.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+				u.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 				u.GroupVersionKind().Kind == "HcpOpenShiftClustersExternalAuth" {
 				if err := setExternalAuthOwner(ctx, u, hcpClusterName, fmt.Sprintf("spec.resources[%d]", i), log); err != nil {
 					return err
@@ -247,7 +247,7 @@ func SetHcpOpenShiftClusterEncryptionKey(vaultInfoProvider VaultInfoProvider) Re
 		var hcpClusterPath string
 		for i, u := range us {
 			if (u.GroupVersionKind().Group == asoredhatopenshiftv1.GroupVersion.Group ||
-				u.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group) &&
+				u.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group) &&
 				u.GroupVersionKind().Kind == "HcpOpenShiftCluster" {
 				hcpCluster = u
 				hcpClusterPath = fmt.Sprintf("spec.resources[%d]", i)
