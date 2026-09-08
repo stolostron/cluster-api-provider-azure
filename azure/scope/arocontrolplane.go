@@ -57,8 +57,9 @@ const (
 	ProvisioningStateFailed = "Failed"
 
 	// ASO ARO HCP resource identifiers.
-	aroHCPGroupName             = "redhatopenshift.azure.com"
-	hcpOpenShiftClusterKindName = "HcpOpenShiftCluster"
+	aroHCPGroupName     = "redhatopenshift.azure.com"
+	HcpClusterKindName  = "HcpOpenShiftCluster"
+	HcpNodePoolKindName = "HcpOpenShiftClustersNodePool"
 )
 
 // AROControlPlaneScopeParams defines the input parameters used to create a new Scope.
@@ -362,7 +363,7 @@ func (s *AROControlPlaneScope) Location() (string, error) {
 
 	// First pass: look for HcpOpenShiftCluster location (primary)
 	for _, rawResource := range s.ControlPlane.Spec.Resources {
-		if loc := s.extractLocationFromResource(rawResource, aroHCPGroupName, hcpOpenShiftClusterKindName); loc != "" {
+		if loc := s.extractLocationFromResource(rawResource, aroHCPGroupName, HcpClusterKindName); loc != "" {
 			return loc, nil
 		}
 	}
@@ -561,7 +562,7 @@ func (s *AROControlPlaneScope) GetKeyVaultResourceID() string {
 		}
 
 		if unstructuredResource.GroupVersionKind().Group == aroHCPGroupName &&
-			unstructuredResource.GroupVersionKind().Kind == hcpOpenShiftClusterKindName {
+			unstructuredResource.GroupVersionKind().Kind == HcpClusterKindName {
 			apiVersion := unstructuredResource.GetAPIVersion()
 			var vaultNamePath []string
 			switch {
