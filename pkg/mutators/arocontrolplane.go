@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"strings"
 
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clusterv1beta1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
@@ -41,7 +41,7 @@ var (
 	ErrNoAROClusterDefined = fmt.Errorf("no %s AROCluster defined in AROControlPlane spec.resources", infrav1exp.GroupVersion.Group)
 
 	// ErrNoHcpOpenShiftClusterDefined describes an AROControlPlane without a HcpOpenShiftCluster.
-	ErrNoHcpOpenShiftClusterDefined = fmt.Errorf("no %s HcpOpenShiftCluster defined in AROControlPlane spec.resources", asoredhatopenshiftv1api2026.GroupVersion.Group)
+	ErrNoHcpOpenShiftClusterDefined = fmt.Errorf("no %s HcpOpenShiftCluster defined in AROControlPlane spec.resources", asoredhatopenshiftv2026.GroupVersion.Group)
 )
 
 // SetAROClusterDefaults propagates values defined by Cluster API to an ARO AROCluster.
@@ -202,7 +202,7 @@ func SetHcpOpenShiftClusterDefaults(_ client.Client, _ *controlv1.AROControlPlan
 		var hcpClusterPath string
 		var hcpClusterName string
 		for i, u := range us {
-			if u.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group &&
+			if u.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group &&
 				u.GroupVersionKind().Kind == scope.HcpClusterKindName {
 				hcpCluster = u
 				hcpClusterName = u.GetName()
@@ -221,7 +221,7 @@ func SetHcpOpenShiftClusterDefaults(_ client.Client, _ *controlv1.AROControlPlan
 
 		// Set owner references for HcpOpenShiftClustersExternalAuth resources
 		for i, u := range us {
-			if u.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group &&
+			if u.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group &&
 				u.GroupVersionKind().Kind == "HcpOpenShiftClustersExternalAuth" {
 				if err := setExternalAuthOwner(ctx, u, hcpClusterName, fmt.Sprintf("spec.resources[%d]", i), log); err != nil {
 					return err
@@ -244,7 +244,7 @@ func SetHcpOpenShiftClusterEncryptionKey(vaultInfoProvider VaultInfoProvider) Re
 		var hcpCluster *unstructured.Unstructured
 		var hcpClusterPath string
 		for i, u := range us {
-			if u.GroupVersionKind().Group == asoredhatopenshiftv1api2026.GroupVersion.Group &&
+			if u.GroupVersionKind().Group == asoredhatopenshiftv2026.GroupVersion.Group &&
 				u.GroupVersionKind().Kind == scope.HcpClusterKindName {
 				hcpCluster = u
 				hcpClusterPath = fmt.Sprintf("spec.resources[%d]", i)

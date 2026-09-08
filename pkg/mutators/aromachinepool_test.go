@@ -21,7 +21,7 @@ import (
 	"errors"
 	"testing"
 
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
 	"github.com/google/go-cmp/cmp"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -194,7 +194,7 @@ func TestReconcileAROAutoscaling(t *testing.T) {
 
 			// Create HcpOpenShiftClustersNodePool with autoscaling config
 			nodePool := &unstructured.Unstructured{}
-			nodePool.SetGroupVersionKind(asoredhatopenshiftv1api2026.GroupVersion.WithKind("HcpOpenShiftClustersNodePool"))
+			nodePool.SetGroupVersionKind(asoredhatopenshiftv2026.GroupVersion.WithKind("HcpOpenShiftClustersNodePool"))
 
 			if test.autoScaling != nil {
 				err := unstructured.SetNestedMap(nodePool.UnstructuredContent(), test.autoScaling, "spec", "properties", "autoScaling")
@@ -376,7 +376,7 @@ func TestReconcileAROAutoscaling_WithDifferentAutoScalingConfigs(t *testing.T) {
 			g := NewGomegaWithT(t)
 
 			nodePool := &unstructured.Unstructured{}
-			nodePool.SetGroupVersionKind(asoredhatopenshiftv1api2026.GroupVersion.WithKind("HcpOpenShiftClustersNodePool"))
+			nodePool.SetGroupVersionKind(asoredhatopenshiftv2026.GroupVersion.WithKind("HcpOpenShiftClustersNodePool"))
 
 			if test.autoScalingField != nil {
 				if asMap, ok := test.autoScalingField.(map[string]interface{}); ok {

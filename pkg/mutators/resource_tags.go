@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	asoredhatopenshiftv1api2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v1api20260630preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -46,7 +46,7 @@ func SetResourceTags(clusterName string, createdAt time.Time) ResourcesMutator {
 		defer done()
 
 		for i, u := range us {
-			if u.GroupVersionKind().Group != asoredhatopenshiftv1api2026.GroupVersion.Group {
+			if u.GroupVersionKind().Group != asoredhatopenshiftv2026.GroupVersion.Group {
 				continue
 			}
 			kind := u.GroupVersionKind().Kind
