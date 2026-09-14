@@ -20,7 +20,7 @@ patches:
   - patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/image
-        value: quay.io/capz/azureserviceoperator:v2.20.0-hcpclusters.1
+        value: quay.io/capz/azure-service-operator-rhel9:stolostron
       - op: replace
         path: /spec/replicas
         value: 1
