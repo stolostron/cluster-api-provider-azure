@@ -68,7 +68,7 @@ require (
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
-	cel.dev/expr v0.25.1 // indirect
+	cel.dev/expr v0.25.2 // indirect
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v6 v6.4.0 // indirect
@@ -188,7 +188,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
