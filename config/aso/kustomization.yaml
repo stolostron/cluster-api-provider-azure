@@ -29,7 +29,7 @@ patches:
         value: --crd-pattern=
       - op: replace # Users can specify additional ASO CRDs. CRDs should be appended with ';'
         path: /spec/template/spec/containers/0/args/6
-        value: --crd-pattern=${ADDITIONAL_ASO_CRDS:= }
+        value: --crd-pattern=network.azure.com/PrivateLinkService;${ADDITIONAL_ASO_CRDS:= }
       - op: replace
         path: /spec/template/spec/containers/0/startupProbe
         value:

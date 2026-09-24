@@ -1,7 +1,11 @@
 {
-  "last_processed_commit": "cfc2e537a2992353b1dba142588687952d5f2f3f",
+  "last_processed_commit": "88d9a56f10323f11af7c4a5097499e3c2392c903",
   "excluded_commits": {
     "cfc2e537a2992353b1dba142588687952d5f2f3f": "grpc v1.82.1 pin already applied downstream via dependency updates",
-    "0db3ca1ea32bc1355bf67973ea2054cac1ba9f59": "azcore v1.23.0 superseded downstream by v1.23.1"
+    "0db3ca1ea32bc1355bf67973ea2054cac1ba9f59": "azcore v1.23.0 superseded downstream by v1.23.1",
+    "4bdc5fb493698abdd52a03b6ba180fddfcd6fcfb": "azcore v1.23.1 already present downstream",
+    "e3aae6da3196f94f1ee204b2a3c042ead14ed3f0": "grpc v1.83.1 superseded downstream by v1.83.2",
+    "7154a33b392380d8c45329b39cde7e8bed2233e8": "downstream security scan uses backplane branches instead of upstream release branches",
+    "da9d1aa348502844f65dffa87c6fef318100cc4c": "OpenTelemetry dependency updates already present downstream"
   }
 }
