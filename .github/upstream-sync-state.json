@@ -1,5 +1,5 @@
 {
-  "last_processed_commit": "88d9a56f10323f11af7c4a5097499e3c2392c903",
+  "last_processed_commit": "875299c511b2adc7101b191c6f6912675884f2f2",
   "excluded_commits": {
     "cfc2e537a2992353b1dba142588687952d5f2f3f": "grpc v1.82.1 pin already applied downstream via dependency updates",
     "0db3ca1ea32bc1355bf67973ea2054cac1ba9f59": "azcore v1.23.0 superseded downstream by v1.23.1",
