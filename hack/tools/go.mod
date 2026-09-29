@@ -4,7 +4,7 @@ go 1.26.0
 
 toolchain go1.26.7
 
-require sigs.k8s.io/cluster-api/hack/tools v0.0.0-20260730162741-560d4acf507b
+require sigs.k8s.io/cluster-api/hack/tools v0.0.0-20260908123630-5f7d58c9ad64
 
 require (
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
