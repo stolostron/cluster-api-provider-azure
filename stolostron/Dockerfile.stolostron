@@ -25,8 +25,18 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/root/.local/share/golang \
     CGO_ENABLED=1 GOOS=linux GOARCH=${ARCH} go build -o ./manager .
 
+RUN /usr/bin/strip ./manager
+
+# Get ca-certificates from ubi-minimal into ubi-micro
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS ubi-minimal
+
 # Copy the aso-controller into a thin image
-FROM registry.access.redhat.com/ubi9/ubi:9.8-1790556197@sha256:7a38d75d376f7989033e75fcaaf9fcbb090fafc58e05c2c99de76ae0ba083fdb
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1790555810@sha256:beeada7dd17903dfb69fd5f6916c054720bf28a52daaa2f7a1910a1394244bd2
 COPY --from=builder /workspace/manager /manager
+# Copy /etc/pki into the final image
+COPY --from=ubi-minimal /etc/pki/ca-trust /etc/pki/ca-trust
+COPY --from=ubi-minimal /etc/pki/java /etc/pki/java
+COPY --from=ubi-minimal /etc/pki/tls /etc/pki/tls
 USER 65532:65532
 ENTRYPOINT ["/manager"]
