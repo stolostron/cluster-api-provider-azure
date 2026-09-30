@@ -202,7 +202,7 @@ linters:
       # Keep the existing package names that now collide with Go standard-library names.
       - linters:
           - revive
-        path: '^(util/maps/maps_test\.go|version/version\.go)$'
+        path: '^(util/maps/maps(_test)?\.go|version/version\.go)$'
         text: avoid package names that conflict with Go standard library package names
       # Dot imports for gomega and ginkgo are allowed
       # within test files and test utils.
