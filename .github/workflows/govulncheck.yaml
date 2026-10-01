@@ -18,6 +18,9 @@ permissions: {}
 jobs:
   govulncheck:
     name: govulncheck (${{ matrix.branch }})
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || matrix.branch }}
+      cancel-in-progress: true
     permissions:
       contents: read
     strategy:
