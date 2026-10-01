@@ -1,0 +1,51 @@
+name: Go vulnerability scan
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release-1.26
+      - release-1.25
+      - release-1.24
+  schedule:
+    # Scan every maintained branch daily; scheduled workflows otherwise use
+    # only the default branch.
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  govulncheck:
+    if: github.event_name == 'schedule' || matrix.branch == 'main'
+    name: govulncheck (${{ github.event_name == 'schedule' && matrix.branch || github.base_ref || matrix.branch }})
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        branch:
+          - main
+          - release-1.26
+          - release-1.25
+          - release-1.24
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'schedule' && matrix.branch || github.sha }}
+          persist-credentials: false
+
+      - name: Get Go version
+        id: vars
+        run: echo "go_version=$(make go-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ steps.vars.outputs.go_version }}
+
+      - name: Run govulncheck
+        run: make verify-govulncheck
