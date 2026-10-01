@@ -23,14 +23,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: ${{ fromJSON(github.event_name == 'schedule' && '["main","release-1.26","release-1.25","release-1.24"]' || '["main"]') }}
+        branch: ${{ fromJSON(github.event_name == 'schedule' && '["main","release-1.26","release-1.25","release-1.24"]' || format('["{0}"]', github.event_name == 'pull_request' && github.base_ref || github.ref_name)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Check out code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event_name == 'schedule' && matrix.branch || github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.sha || matrix.branch }}
           persist-credentials: false
 
       - name: Get Go version
