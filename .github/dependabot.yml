@@ -153,6 +153,171 @@ updates:
     - "kind/cleanup"
     - "release-note-none"
 
+# Dependabot supports one target branch per update entry. Keep these entries
+# aligned with the release branches scanned by govulncheck.
+# Go - root directory, release branches
+- directory: "/"
+  package-ecosystem: "gomod"
+  target-branch: "release-1.26"
+  open-pull-requests-limit: 5
+  schedule:
+    interval: "weekly"
+    time: "09:00"
+    timezone: "America/New_York"
+  commit-message:
+    prefix: "dependabot"
+    include: scope
+  ignore:
+    - dependency-name: "sigs.k8s.io/controller-runtime"
+    - dependency-name: "k8s.io/*"
+    - dependency-name: "github.com/prometheus/*"
+      update-types: [ "version-update:semver-major", "version-update:semver-minor"]
+    - dependency-name: "go.etcd.io/*"
+    - dependency-name: "google.golang.org/grpc"
+    - dependency-name: "sigs.k8s.io/cloud-provider-azure"
+    - dependency-name: "go.opentelemetry.io/contrib/*"
+    - dependency-name: "go.opentelemetry.io/otel/exporters/*"
+    - dependency-name: "go.opentelemetry.io/otel/metric"
+    - dependency-name: "go.opentelemetry.io/otel/sdk*"
+    - dependency-name: "go.opentelemetry.io/otel/trace"
+  labels:
+    - "ok-to-test"
+    - "kind/cleanup"
+    - "release-note-none"
+- directory: "/"
+  package-ecosystem: "gomod"
+  target-branch: "release-1.25"
+  open-pull-requests-limit: 5
+  schedule:
+    interval: "weekly"
+    time: "09:00"
+    timezone: "America/New_York"
+  commit-message:
+    prefix: "dependabot"
+    include: scope
+  ignore:
+    - dependency-name: "sigs.k8s.io/controller-runtime"
+    - dependency-name: "k8s.io/*"
+    - dependency-name: "github.com/prometheus/*"
+      update-types: [ "version-update:semver-major", "version-update:semver-minor"]
+    - dependency-name: "go.etcd.io/*"
+    - dependency-name: "google.golang.org/grpc"
+    - dependency-name: "sigs.k8s.io/cloud-provider-azure"
+    - dependency-name: "go.opentelemetry.io/contrib/*"
+    - dependency-name: "go.opentelemetry.io/otel/exporters/*"
+    - dependency-name: "go.opentelemetry.io/otel/metric"
+    - dependency-name: "go.opentelemetry.io/otel/sdk*"
+    - dependency-name: "go.opentelemetry.io/otel/trace"
+  labels:
+    - "ok-to-test"
+    - "kind/cleanup"
+    - "release-note-none"
+- directory: "/"
+  package-ecosystem: "gomod"
+  target-branch: "release-1.24"
+  open-pull-requests-limit: 5
+  schedule:
+    interval: "weekly"
+    time: "09:00"
+    timezone: "America/New_York"
+  commit-message:
+    prefix: "dependabot"
+    include: scope
+  ignore:
+    - dependency-name: "sigs.k8s.io/controller-runtime"
+    - dependency-name: "k8s.io/*"
+    - dependency-name: "github.com/prometheus/*"
+      update-types: [ "version-update:semver-major", "version-update:semver-minor"]
+    - dependency-name: "go.etcd.io/*"
+    - dependency-name: "google.golang.org/grpc"
+    - dependency-name: "sigs.k8s.io/cloud-provider-azure"
+    - dependency-name: "go.opentelemetry.io/contrib/*"
+    - dependency-name: "go.opentelemetry.io/otel/exporters/*"
+    - dependency-name: "go.opentelemetry.io/otel/metric"
+    - dependency-name: "go.opentelemetry.io/otel/sdk*"
+    - dependency-name: "go.opentelemetry.io/otel/trace"
+  labels:
+    - "ok-to-test"
+    - "kind/cleanup"
+    - "release-note-none"
+
+# Go - hack/tools directory, release branches
+- directory: "/hack/tools"
+  package-ecosystem: "gomod"
+  target-branch: "release-1.26"
+  open-pull-requests-limit: 5
+  schedule:
+    interval: "weekly"
+    time: "09:00"
+    timezone: "America/New_York"
+  commit-message:
+    prefix: "dependabot"
+    include: scope
+  ignore:
+    - dependency-name: "sigs.k8s.io/controller-runtime"
+    - dependency-name: "k8s.io/*"
+    - dependency-name: "go.etcd.io/*"
+    - dependency-name: "google.golang.org/grpc"
+    - dependency-name: "go.opentelemetry.io/contrib/*"
+    - dependency-name: "go.opentelemetry.io/otel/exporters/*"
+    - dependency-name: "go.opentelemetry.io/otel/metric"
+    - dependency-name: "go.opentelemetry.io/otel/sdk*"
+    - dependency-name: "go.opentelemetry.io/otel/trace"
+  labels:
+    - "ok-to-test"
+    - "kind/cleanup"
+    - "release-note-none"
+- directory: "/hack/tools"
+  package-ecosystem: "gomod"
+  target-branch: "release-1.25"
+  open-pull-requests-limit: 5
+  schedule:
+    interval: "weekly"
+    time: "09:00"
+    timezone: "America/New_York"
+  commit-message:
+    prefix: "dependabot"
+    include: scope
+  ignore:
+    - dependency-name: "sigs.k8s.io/controller-runtime"
+    - dependency-name: "k8s.io/*"
+    - dependency-name: "go.etcd.io/*"
+    - dependency-name: "google.golang.org/grpc"
+    - dependency-name: "go.opentelemetry.io/contrib/*"
+    - dependency-name: "go.opentelemetry.io/otel/exporters/*"
+    - dependency-name: "go.opentelemetry.io/otel/metric"
+    - dependency-name: "go.opentelemetry.io/otel/sdk*"
+    - dependency-name: "go.opentelemetry.io/otel/trace"
+  labels:
+    - "ok-to-test"
+    - "kind/cleanup"
+    - "release-note-none"
+- directory: "/hack/tools"
+  package-ecosystem: "gomod"
+  target-branch: "release-1.24"
+  open-pull-requests-limit: 5
+  schedule:
+    interval: "weekly"
+    time: "09:00"
+    timezone: "America/New_York"
+  commit-message:
+    prefix: "dependabot"
+    include: scope
+  ignore:
+    - dependency-name: "sigs.k8s.io/controller-runtime"
+    - dependency-name: "k8s.io/*"
+    - dependency-name: "go.etcd.io/*"
+    - dependency-name: "google.golang.org/grpc"
+    - dependency-name: "go.opentelemetry.io/contrib/*"
+    - dependency-name: "go.opentelemetry.io/otel/exporters/*"
+    - dependency-name: "go.opentelemetry.io/otel/metric"
+    - dependency-name: "go.opentelemetry.io/otel/sdk*"
+    - dependency-name: "go.opentelemetry.io/otel/trace"
+  labels:
+    - "ok-to-test"
+    - "kind/cleanup"
+    - "release-note-none"
+
 # Docker
 - package-ecosystem: "docker"
   directory: "/"
