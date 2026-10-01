@@ -17,18 +17,13 @@ permissions: {}
 
 jobs:
   govulncheck:
-    if: github.event_name == 'schedule' || matrix.branch == 'main'
-    name: govulncheck (${{ github.event_name == 'schedule' && matrix.branch || github.base_ref || matrix.branch }})
+    name: govulncheck (${{ matrix.branch }})
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        branch:
-          - main
-          - release-1.26
-          - release-1.25
-          - release-1.24
+        branch: ${{ fromJSON(github.event_name == 'schedule' && '["main","release-1.26","release-1.25","release-1.24"]' || '["main"]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
