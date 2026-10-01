@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: ${{ fromJSON(github.event_name == 'schedule' && '["main","release-1.26","release-1.25","release-1.24"]' || format('["{0}"]', github.event_name == 'pull_request' && github.base_ref || github.ref_name)) }}
+        branch: ${{ fromJSON(github.event_name == 'schedule' && '["main","release-1.26","release-1.25","release-1.24"]' || format('[{0}]', toJSON(github.event_name == 'pull_request' && github.base_ref || github.ref_name))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
