@@ -155,26 +155,31 @@ Go to [the Netlify branches and deploy contexts in site settings](https://app.ne
 
 Note: this step requires access to the Netlify site. If you don't have access, please ask a maintainer to update the branch.
 
-### 9. Update security scanner and Dependabot branches (skip for patch releases)
+### 9. Update security scanner and Renovate branches (skip for patch releases)
 
-Open a pull request to update the branches in the [weekly security scan workflow](https://github.com/kubernetes-sigs/cluster-api-provider-azure/blob/main/.github/workflows/weekly-security-scan.yaml) to include the new release branch. For example, if the new release branch is `release-1.23`, update the `branch` matrix to:
+Open a pull request to update the branches in the [daily security scan workflow](https://github.com/kubernetes-sigs/cluster-api-provider-azure/blob/main/.github/workflows/daily-security-scan.yaml) to include the new release branch. For example, if the new release branch is `release-1.23`, update the `branch` matrix to:
 
-```yaml
+```json
       matrix:
         branch: [ main, release-1.23, release-1.22 ]
 ```
 
-In the same pull request, update [dependabot.yml](https://github.com/kubernetes-sigs/cluster-api-provider-azure/blob/main/.github/dependabot.yml) to match. Dependabot only opens pull requests against the default branch unless an entry sets `target-branch`, so each supported release branch needs its own `gomod` entry. Add one for the new release branch and delete the entry for any branch that's no longer supported:
+In the same pull request, update [`renovate.json`](https://github.com/kubernetes-sigs/cluster-api-provider-azure/blob/main/renovate.json) so `baseBranchPatterns` includes the new maintained release branch. Renovate raises grouped pull requests for known dependency vulnerabilities on configured branches, so add the new branch and remove any branch that's no longer supported:
 
 ```yaml
-# Go - root directory, release-1.23 branch
-- directory: "/"
-  package-ecosystem: "gomod"
-  target-branch: "release-1.23"
-  # ...copy the rest from an existing release branch entry
+"baseBranchPatterns": [
+  "main",
+  "release-1.23",
+  "/^backplane-2\\.[0-9]+$/"
+]
 ```
 
-Keep the branches listed here in sync with the security scan matrix. If they drift, the weekly scan will keep reporting vulnerabilities on a branch that Dependabot never updates.
+Keep Renovate's `baseBranchPatterns` aligned with the branches that should receive vulnerability-fix PRs. The daily security scan also includes `backplane-5.0`, `backplane-5.1`, and `backplane-5.2` for security visibility; these fast-forward-only branches are scan-only and must stay out of Renovate's branch list. When adding or removing a PR-maintained branch, update both the scan matrix and `baseBranchPatterns`.
+
+Keep the GitHub dependency graph and Dependabot alerts enabled. Renovate uses
+those alerts for grouped security-fix PRs, so the Renovate app needs read access
+to alerts and write access to repository contents and pull requests. Disable
+Dependabot's PR features only after Renovate is active for the repository.
 
 ### 10. Announce the new release
 

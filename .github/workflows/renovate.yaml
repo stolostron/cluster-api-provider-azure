@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       dry-run:
-        description: "Run Renovate in dry-run mode (no PRs created)"
+        description: "Use 'full' to preview without creating PRs; 'false' runs normally and may create or update PRs."
         required: false
         default: "false"
         type: choice
@@ -13,7 +13,12 @@ on:
           - "full"
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
+  pull-requests: write
+  statuses: write
+  vulnerability-alerts: read
+  workflows: write
 
 jobs:
   renovate:

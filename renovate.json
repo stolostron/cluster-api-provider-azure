@@ -1,25 +1,88 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "security:only-security-updates"
+  ],
   "enabledManagers": [
+    "gomod",
+    "github-actions",
     "tekton",
     "dockerfile"
   ],
   "baseBranchPatterns": [
     "main",
+    "release-1.26",
     "/^backplane-2\\.[0-9]+$/"
   ],
   "tekton": {
     "includePaths": [
       ".tekton/**"
-    ],
-    "schedule": [
-      "at any time"
     ]
   },
   "packageRules": [
     {
+      "description": "GitHub Actions updates are maintained on the default branch only.",
       "matchManagers": [
-        "dockerfile"
+        "github-actions"
+      ],
+      "matchBaseBranches": [
+        "/^release-[0-9]+\\.[0-9]+$/",
+        "/^backplane-2\\.[0-9]+$/"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Tekton updates follow the main and maintained backplane branches.",
+      "matchManagers": [
+        "tekton"
+      ],
+      "matchBaseBranches": [
+        "/^release-[0-9]+\\.[0-9]+$/"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Keep the Kubernetes platform dependency families on their coordinated/manual upgrade paths.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "sigs.k8s.io/controller-runtime",
+        "k8s.io/*",
+        "go.etcd.io/*",
+        "sigs.k8s.io/cloud-provider-azure",
+        "go.opentelemetry.io/contrib/*",
+        "go.opentelemetry.io/otel/exporters/*",
+        "go.opentelemetry.io/otel/metric",
+        "go.opentelemetry.io/otel/sdk*",
+        "go.opentelemetry.io/otel/trace"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Keep Prometheus upgrades below major/minor on the coordinated dependency path.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "github.com/prometheus/*"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Keep gRPC changes on the release-1.26 branch on its coordinated upgrade path.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchBaseBranches": [
+        "release-1.26"
+      ],
+      "matchPackageNames": [
+        "google.golang.org/grpc"
       ],
       "enabled": false
     },
@@ -27,32 +90,72 @@
       "matchManagers": [
         "dockerfile"
       ],
-      "enabled": true,
-      "pinDigests": true,
-      "matchFileNames": [
-        "stolostron/Dockerfile.stolostron"
-      ]
+      "enabled": false
     },
     {
+      "description": "Update the root Dockerfile on main, except the Go builder image which is intentionally ignored.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
+      "matchBaseBranches": [
+        "main"
+      ],
+      "enabled": true
+    },
+    {
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
+      "matchPackageNames": [
+        "golang"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Keep the Stolostron image updated on main and backplane branches, including its digest.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchFileNames": [
+        "stolostron/Dockerfile.stolostron"
+      ],
       "matchBaseBranches": [
         "main",
         "/^backplane-2\\.[0-9]+$/"
       ],
-      "matchManagers": [
-        "tekton"
-      ],
       "enabled": true,
-      "addLabels": [
-        "ok-to-test"
-      ]
+      "pinDigests": true
+    },
+    {
+      "description": "Disable regular version and digest updates; Renovate security alerts bypass this rule.",
+      "matchPackageNames": [
+        "*"
+      ],
+      "enabled": false
     }
   ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "groupName": "Security fixes",
+    "labels": [
+      "security",
+      "ok-to-test",
+      "kind/cleanup",
+      "release-note-none"
+    ],
+    "prConcurrentLimit": 4
+  },
   "rebaseWhen": "behind-base-branch",
   "recreateWhen": "never",
   "addLabels": [
-    "ok-to-test"
-  ],
-  "schedule": [
-    "on monday"
+    "ok-to-test",
+    "kind/cleanup",
+    "release-note-none"
   ]
 }
