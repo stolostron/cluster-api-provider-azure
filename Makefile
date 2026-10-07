@@ -331,9 +331,19 @@ verify-tiltfile: ## Verify Tiltfile format.
 verify-codespell: codespell ## Verify codespell.
 	@$(CODESPELL) $(ROOT_DIR) --ignore-words=$(ROOT_DIR)/.codespellignore --skip="*.git,*_artifacts,*.sum,$(ROOT_DIR)/docs/book/bookout,$(ROOT_DIR)/hack/tools/bin/codespell_dist"
 
+# Scan the pinned verifier executable directly; hack/tools/tools.go imports a package main.
 .PHONY: verify-govulncheck
 verify-govulncheck: $(GOVULNCHECK) ## Verify code for vulnerabilities
-	$(GOVULNCHECK) -tags=e2e ./...
+	@status=0; \
+	for module in . ./hack/tools; do \
+		echo "Running govulncheck in $$module"; \
+		if [ "$$module" = "." ]; then \
+			$(GOVULNCHECK) -tags=e2e ./... || status=1; \
+		else \
+			(cd "$$module" && $(GOVULNCHECK) sigs.k8s.io/cluster-api/hack/tools/conversion-verifier) || status=1; \
+		fi; \
+	done; \
+	exit $$status
 
 .PHONY: verify-security
 verify-security: ## Verify code and images for vulnerabilities
