@@ -47,5 +47,230 @@ jobs:
         with:
           go-version: ${{ steps.vars.outputs.go_version }}
 
+      # govulncheck exits 3 when it finds a reachable vulnerability, 1 or 2 when
+      # the scan itself fails, 0 when clean. `make verify-govulncheck` collapses
+      # every failure to 1, so the summary line in the output is what tells the
+      # two cases apart. Never fail here: the summary, artifact and issue steps
+      # all have to run first.
       - name: Run govulncheck
-        run: make verify-govulncheck
+        id: scan
+        run: |
+          set -o pipefail
+          status=0
+          make verify-govulncheck 2>&1 | tee govulncheck-output.txt || status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Classify result
+        if: always()
+        id: classify
+        env:
+          STATUS: ${{ steps.scan.outputs.status }}
+        run: |
+          # Sum "Your code is affected by N vulnerabilities." across both modules.
+          # Absence of that line means govulncheck never got far enough to report.
+          REACHABLE=$(grep -oE 'Your code is affected by [0-9]+ vulnerabilit' govulncheck-output.txt 2>/dev/null \
+            | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          # grep -c prints 0 *and* exits non-zero on no match, so capture the
+          # substitution's status rather than appending a second 0 to the value.
+          COMPLETED=$(grep -cE 'Your code is affected by [0-9]+ vulnerabilit' govulncheck-output.txt 2>/dev/null) || COMPLETED=0
+
+          if [ "${STATUS:-1}" = "0" ]; then
+            OUTCOME=clean
+          elif [ "$COMPLETED" -gt 0 ] && [ "$REACHABLE" -gt 0 ]; then
+            OUTCOME=vulnerable
+          else
+            OUTCOME=error
+          fi
+
+          echo "outcome=$OUTCOME" >> "$GITHUB_OUTPUT"
+          echo "reachable=$REACHABLE" >> "$GITHUB_OUTPUT"
+
+      - name: Generate summary
+        if: always()
+        env:
+          BRANCH: ${{ matrix.branch }}
+          OUTCOME: ${{ steps.classify.outputs.outcome }}
+          REACHABLE: ${{ steps.classify.outputs.reachable }}
+        run: |
+          {
+            echo "# govulncheck (\`$BRANCH\`)"
+            echo ""
+            case "$OUTCOME" in
+              clean)
+                echo "## ✅ No reachable vulnerabilities"
+                echo ""
+                echo "govulncheck exits non-zero only when our code can actually *call* a"
+                echo "vulnerable symbol. Advisories against modules we merely require are"
+                echo "reported by Trivy instead — see the Daily security scan."
+                ;;
+              vulnerable)
+                echo "## ❌ $REACHABLE reachable vulnerabilities"
+                echo ""
+                echo "Our code calls into vulnerable symbols. These are the highest-priority"
+                echo "findings we produce: reachability is proven, not inferred."
+                ;;
+              *)
+                echo "## ⚠️ Scan did not complete"
+                echo ""
+                echo "govulncheck failed before reporting. This is a scan failure, not a"
+                echo "vulnerability finding."
+                ;;
+            esac
+            echo ""
+            echo "<details open>"
+            echo "<summary><b>govulncheck output</b></summary>"
+            echo ""
+            echo '```'
+            head -300 govulncheck-output.txt 2>/dev/null || echo "(no output captured)"
+            echo '```'
+            echo ""
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save scan result for issue reporting
+        if: always()
+        env:
+          BRANCH: ${{ matrix.branch }}
+          OUTCOME: ${{ steps.classify.outputs.outcome }}
+          REACHABLE: ${{ steps.classify.outputs.reachable }}
+        run: |
+          jq -n --arg branch "$BRANCH" --arg outcome "$OUTCOME" --arg reachable "$REACHABLE" \
+            '{branch:$branch,outcome:$outcome,reachable:$reachable}' > scan-result.json
+
+      - name: Upload govulncheck results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: govulncheck-results-${{ matrix.branch }}
+          path: |
+            govulncheck-output.txt
+            scan-result.json
+          retention-days: 30
+
+      - name: Fail if govulncheck failed
+        if: always() && steps.scan.outputs.status != '0'
+        run: exit 1
+
+  create-issues:
+    needs: govulncheck
+    # Mirrors the Daily security scan: scheduled and manual runs file issues,
+    # pull requests do not — a PR already shows its own red check.
+    if: always() && !cancelled() && github.event_name != 'pull_request'
+    permissions:
+      issues: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download scan results
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: govulncheck-results-*
+          path: govulncheck-artifacts
+          merge-multiple: false
+        continue-on-error: true
+
+      - name: Create, update or close issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          shopt -s nullglob
+          for RESULTS_DIR in govulncheck-artifacts/govulncheck-results-*; do
+            RESULT_FILE="$RESULTS_DIR/scan-result.json"
+            if [ ! -s "$RESULT_FILE" ]; then
+              echo "::warning::Scan result is missing for $RESULTS_DIR; skipping issue handling."
+              continue
+            fi
+
+            BRANCH=$(jq -r '.branch // empty' "$RESULT_FILE")
+            OUTCOME=$(jq -r '.outcome // empty' "$RESULT_FILE")
+            REACHABLE=$(jq -r '.reachable // "0"' "$RESULT_FILE")
+            if [ -z "$BRANCH" ] || [ -z "$OUTCOME" ]; then
+              echo "::warning::Malformed scan result in $RESULTS_DIR; skipping."
+              continue
+            fi
+
+            # gh issue create fails outright on an unknown label, which would
+            # silently suppress the whole report. Create them idempotently.
+            for LABEL in security govulncheck "$BRANCH"; do
+              gh label create "$LABEL" --color ededed --description "Auto-created by the Go vulnerability scan" 2>/dev/null || true
+            done
+
+            EXISTING_ISSUE=$(gh issue list --state open --label "security" --label "govulncheck" --label "$BRANCH" --json number --jq '.[0].number // empty') || {
+              echo "::warning::Failed to list issues for $BRANCH. A duplicate issue may be created."
+              EXISTING_ISSUE=""
+            }
+
+            if [ "$OUTCOME" = "clean" ]; then
+              if [ -n "$EXISTING_ISSUE" ]; then
+                gh issue close "$EXISTING_ISSUE" --reason completed --comment \
+                  "✅ govulncheck is clean on \`${BRANCH}\` as of [run ${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}). Closing automatically; it will reopen as a new issue if a reachable vulnerability returns." \
+                  || echo "::warning::Failed to close resolved issue #$EXISTING_ISSUE."
+              fi
+              continue
+            fi
+
+            if [ "$OUTCOME" = "vulnerable" ]; then
+              TITLE="🚨 [govulncheck] $REACHABLE reachable vulnerabilities on ${BRANCH}"
+              HEADING="## 🚨 Reachable vulnerabilities: $REACHABLE"
+              CONTEXT="Our code **calls into** vulnerable symbols. govulncheck proves reachability through the call graph, so unlike a Trivy advisory this is not a maybe. Treat it ahead of any Trivy-only finding, regardless of CVSS score."
+            else
+              TITLE="⚠️ [govulncheck] scan failed on ${BRANCH}"
+              HEADING="## ⚠️ Scan did not complete"
+              CONTEXT="govulncheck exited non-zero without reporting results. This is a **scan failure**, not a vulnerability finding — the branch is unscanned until it is fixed."
+            fi
+
+            {
+              echo "$HEADING"
+              echo ""
+              echo "$CONTEXT"
+              echo ""
+              echo "| Field | Value |"
+              echo "|-------|-------|"
+              echo "| **Scanner** | govulncheck |"
+              echo "| **Branch** | \`${BRANCH}\` |"
+              echo "| **Reachable vulnerabilities** | ${REACHABLE} |"
+              echo "| **Workflow run** | [${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}) |"
+              echo "| **Date** | $(date -u +"%Y-%m-%d %H:%M:%S UTC") |"
+              echo ""
+              echo "<details open>"
+              echo "<summary><b>govulncheck output</b></summary>"
+              echo ""
+              echo '```'
+              head -200 "$RESULTS_DIR/govulncheck-output.txt" 2>/dev/null || echo "See the workflow run for details."
+              echo '```'
+              echo ""
+              echo "</details>"
+              echo ""
+              echo "## 🔧 Remediation"
+              echo ""
+              echo "govulncheck has [no suppression mechanism](https://go.dev/issue/61211) — there is no \`.trivyignore\` equivalent. A reachable finding is resolved by upgrading the module, removing the call, or a \`replace\` directive."
+              echo ""
+              echo "1. Check whether MintMaker already has an open \`Security fixes\` PR for \`${BRANCH}\`."
+              echo "2. Check whether upstream has already fixed it — the weekly upstream sync may carry it."
+              echo "3. Reproduce locally with \`make verify-govulncheck\`."
+              echo ""
+              echo "See [docs/VULNERABILITY-MANAGEMENT.md](${SERVER_URL}/${REPO}/blob/main/docs/VULNERABILITY-MANAGEMENT.md)."
+              echo ""
+              echo "---"
+              echo ""
+              echo "*🤖 Filed automatically by the [Go vulnerability scan](${SERVER_URL}/${REPO}/actions/workflows/govulncheck.yaml). It closes itself once the branch scans clean.*"
+            } > issue_body.md
+
+            if [ -n "$EXISTING_ISSUE" ]; then
+              echo "Updating existing issue #$EXISTING_ISSUE for $BRANCH"
+              gh issue comment "$EXISTING_ISSUE" --body-file issue_body.md \
+                || echo "::warning::Failed to comment on issue #$EXISTING_ISSUE."
+            else
+              echo "Creating issue for $BRANCH"
+              gh issue create \
+                --title "$TITLE" \
+                --label "security" \
+                --label "govulncheck" \
+                --label "$BRANCH" \
+                --body-file issue_body.md \
+                || echo "::warning::Failed to create issue for $BRANCH. Check workflow permissions."
+            fi
+          done
