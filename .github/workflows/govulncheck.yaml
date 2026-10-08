@@ -224,11 +224,15 @@ jobs:
               EXISTING_ISSUE=""
             }
 
+            # Say when a branch has gone clean, but leave the issue open. These
+            # are work items for a human or an agent to review and close, same
+            # as the Trivy ones; closing automatically could retire a finding
+            # before anyone read it.
             if [ "$OUTCOME" = "clean" ]; then
               if [ -n "$EXISTING_ISSUE" ]; then
-                gh issue close "$EXISTING_ISSUE" --reason completed --comment \
-                  "✅ govulncheck is clean on \`${BRANCH}\` as of [run ${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}). Closing automatically; it will reopen as a new issue if a reachable vulnerability returns." \
-                  || fail "Could not close resolved issue #$EXISTING_ISSUE for $BRANCH."
+                gh issue comment "$EXISTING_ISSUE" --body \
+                  "✅ govulncheck is now clean on \`${BRANCH}\` as of [run ${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}). No reachable vulnerabilities remain. Safe to close once you have reviewed what changed." \
+                  || fail "Could not comment on resolved issue #$EXISTING_ISSUE for $BRANCH."
               fi
               continue
             fi
