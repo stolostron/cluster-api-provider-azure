@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - release-1.23
       - release-1.26
       - backplane-2.11
       - backplane-2.17
@@ -26,9 +27,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Shipping branches plus the release source that fast-forwards to backplane-5.0.
+        # Shipping branches plus the release sources that fast-forward into them.
         # The backplane 5.x targets are scanned here but receive changes by fast-forward.
-        branch: ${{ fromJSON(github.event_name == 'schedule' && '["main","release-1.26","backplane-2.11","backplane-2.17","backplane-5.0","backplane-5.1","backplane-5.2"]' || format('[{0}]', toJSON(github.event_name == 'pull_request' && github.base_ref || github.ref_name))) }}
+        # release-1.23 feeds an ACM build defined outside this repo.
+        # Keep this list aligned with docs/VULNERABILITY-MANAGEMENT.md and daily-security-scan.yaml.
+        branch: ${{ fromJSON(github.event_name == 'schedule' && '["main","release-1.23","release-1.26","backplane-2.11","backplane-2.17","backplane-5.0","backplane-5.1","backplane-5.2"]' || format('[{0}]', toJSON(github.event_name == 'pull_request' && github.base_ref || github.ref_name))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -177,10 +180,28 @@ jobs:
           RUN_ID: ${{ github.run_id }}
         run: |
           shopt -s nullglob
+
+          # Reporting is fail-closed, matching daily-security-scan.yaml: a
+          # finding we detected but failed to report is worse than a red job.
+          REPORT_FAILED=0
+          PROCESSED=0
+          fail() { echo "::error::$*"; REPORT_FAILED=1; }
+
+          ensure_label() {
+            local label="$1" colour="$2" description="$3"
+            if gh api "repos/$GH_REPO/labels/$label" --silent 2>/dev/null; then
+              return 0
+            fi
+            echo "Label '$label' is missing; creating it."
+            gh label create "$label" --color "$colour" --description "$description" \
+              || { fail "Could not create the '$label' label, so findings for it cannot be filed."; return 1; }
+          }
+
           for RESULTS_DIR in govulncheck-artifacts/govulncheck-results-*; do
+            PROCESSED=$((PROCESSED + 1))
             RESULT_FILE="$RESULTS_DIR/scan-result.json"
             if [ ! -s "$RESULT_FILE" ]; then
-              echo "::warning::Scan result is missing for $RESULTS_DIR; skipping issue handling."
+              fail "Scan result is missing for $RESULTS_DIR; that branch's findings cannot be reported."
               continue
             fi
 
@@ -188,15 +209,15 @@ jobs:
             OUTCOME=$(jq -r '.outcome // empty' "$RESULT_FILE")
             REACHABLE=$(jq -r '.reachable // "0"' "$RESULT_FILE")
             if [ -z "$BRANCH" ] || [ -z "$OUTCOME" ]; then
-              echo "::warning::Malformed scan result in $RESULTS_DIR; skipping."
+              fail "Malformed scan result in $RESULTS_DIR; that branch's findings cannot be reported."
               continue
             fi
 
             # gh issue create fails outright on an unknown label, which would
             # silently suppress the whole report. Create them idempotently.
-            for LABEL in security govulncheck "$BRANCH"; do
-              gh label create "$LABEL" --color ededed --description "Auto-created by the Go vulnerability scan" 2>/dev/null || true
-            done
+            ensure_label security d93f0b "Security-related issue" || continue
+            ensure_label govulncheck d93f0b "Reported by the Go vulnerability scanner" || continue
+            ensure_label "$BRANCH" ededed "Affects the $BRANCH branch" || continue
 
             EXISTING_ISSUE=$(gh issue list --state open --label "security" --label "govulncheck" --label "$BRANCH" --json number --jq '.[0].number // empty') || {
               echo "::warning::Failed to list issues for $BRANCH. A duplicate issue may be created."
@@ -207,7 +228,7 @@ jobs:
               if [ -n "$EXISTING_ISSUE" ]; then
                 gh issue close "$EXISTING_ISSUE" --reason completed --comment \
                   "✅ govulncheck is clean on \`${BRANCH}\` as of [run ${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}). Closing automatically; it will reopen as a new issue if a reachable vulnerability returns." \
-                  || echo "::warning::Failed to close resolved issue #$EXISTING_ISSUE."
+                  || fail "Could not close resolved issue #$EXISTING_ISSUE for $BRANCH."
               fi
               continue
             fi
@@ -262,7 +283,7 @@ jobs:
             if [ -n "$EXISTING_ISSUE" ]; then
               echo "Updating existing issue #$EXISTING_ISSUE for $BRANCH"
               gh issue comment "$EXISTING_ISSUE" --body-file issue_body.md \
-                || echo "::warning::Failed to comment on issue #$EXISTING_ISSUE."
+                || fail "Could not update issue #$EXISTING_ISSUE with the latest $BRANCH result."
             else
               echo "Creating issue for $BRANCH"
               gh issue create \
@@ -271,6 +292,16 @@ jobs:
                 --label "govulncheck" \
                 --label "$BRANCH" \
                 --body-file issue_body.md \
-                || echo "::warning::Failed to create issue for $BRANCH. Check workflow permissions."
+                || fail "Could not file the govulncheck issue for $BRANCH. Check workflow permissions."
             fi
           done
+
+          if [ "$PROCESSED" -eq 0 ]; then
+            echo "::error::No govulncheck artifacts were found. The scans did not report, so this run proves nothing."
+            exit 1
+          fi
+
+          if [ "$REPORT_FAILED" -ne 0 ]; then
+            echo "::error::govulncheck results could not be reported. See the errors above."
+            exit 1
+          fi
