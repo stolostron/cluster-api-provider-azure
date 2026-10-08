@@ -37,6 +37,7 @@ Konflux build/pipeline configuration.
 | Automated upstream sync | [`.github/workflows/upstream-sync.yml`](../.github/workflows/upstream-sync.yml) | Weekly (Mon 08:17 UTC) + manual dispatch. Opens draft PRs that merge upstream release branches into the downstream branches. |
 | Konflux build pipelines | [`.tekton/`](../.tekton) | Tekton `PipelineRun` definitions for MCE releases (`mce-217`, `mce-51`, `mce-50`), split into `-pull-request` and `-push` variants. |
 | Release branches | see sync matrix below | Downstream branches track specific upstream release branches. |
+| Dependency update PRs | [`renovate.json`](../renovate.json) | Raised by Konflux **MintMaker**, not by Dependabot. See [Dependency updates](#dependency-updates) below. |
 
 ### Branch model
 
@@ -73,6 +74,84 @@ rather than trusting this table if they disagree.
 - **PR target.** Open PRs against the appropriate downstream branch
   (`main` / `backplane-5.1` / `backplane-5.0` / `backplane-2.17` / `backplane-2.11`),
   not against upstream.
+
+## Dependency updates
+
+Scanning and update-PR creation are separate concerns here, handled by
+different tools:
+
+| Job | Tool | Where |
+|-----|------|-------|
+| Vulnerability scanning | Trivy | [`daily-security-scan.yaml`](../.github/workflows/daily-security-scan.yaml) — daily across every maintained branch, results to the GitHub Security tab |
+| Go vulnerability scanning (reachability) | govulncheck | [`govulncheck.yaml`](../.github/workflows/govulncheck.yaml) |
+| Vulnerability *alerts* | GitHub Dependabot alerts + OSV | Alerts stay **enabled**; Renovate consumes them. OSV is what covers the non-default branches, where Dependabot alerts don't reach. |
+| Update *pull requests* | Konflux **MintMaker** | Configured by [`renovate.json`](../renovate.json) |
+
+Dependabot's own PR features are deliberately **off** (no `.github/dependabot.yml`,
+"Dependabot security updates" disabled in repository settings) because MintMaker
+supersedes them. Do not re-enable them — you get duplicate PRs. Keep the
+dependency graph and Dependabot *alerts* on; Renovate needs them.
+
+The policy in `renovate.json` is **vulnerability-only**: routine version and
+digest bumps are disabled, and a known vulnerability with an available fix
+produces one grouped `Security fixes` PR per base branch.
+
+### MintMaker overrides repository `packageRules` — read this before editing `renovate.json`
+
+MintMaker *is* Renovate, run as a hosted service by Konflux. It applies its own
+[global config](https://github.com/konflux-ci/mintmaker/blob/main/config/renovate/renovate.json)
+underneath this repository's `renovate.json`, and parts of it live inside
+manager-scoped objects — notably:
+
+```json
+"gomod": {
+  "packageRules": [
+    { "matchManagers": ["gomod"], "matchDepTypes": ["indirect"], "enabled": true }
+  ]
+}
+```
+
+Renovate merges manager-scoped `packageRules` **after** top-level ones, and the
+last matching rule wins. So a top-level rule in this repo's config **cannot**
+override a MintMaker rule of the same kind — the override has to sit at the same
+specificity, inside a top-level `"gomod"` / `"tekton"` / `"dockerfile"` object.
+This is why `renovate.json` carries a `gomod.packageRules` entry: without it
+MintMaker re-enables every `// indirect` module, which both floods the repo with
+single-dependency PRs and silently defeats the coordinated-upgrade pins for
+`k8s.io/*`, OpenTelemetry, `sigs.k8s.io/cloud-provider-azure` and Prometheus
+(all of which are indirect in `go.mod`).
+
+Vulnerability alerts force-override these `enabled: false` rules, so security
+fixes still land.
+
+### Validating a `renovate.json` change
+
+Schema validation alone is not enough — it will not catch a rule that MintMaker
+overrides. Reproduce the real merge by running Renovate against MintMaker's
+global config and reading the `Returning N branch(es)` line:
+
+```sh
+mkdir -p /tmp/rnv && cp go.mod go.sum renovate.json /tmp/rnv/
+curl -sL https://raw.githubusercontent.com/konflux-ci/mintmaker/main/config/renovate/renovate.json \
+  -o /tmp/rnv/global.json
+# edit /tmp/rnv/global.json: set "platform": "local", "dryRun": "full",
+# drop the Konflux-only keys (platformCommit, inheritConfig, autodiscover,
+# forkProcessing, allowedCommands, rpm* and the "rpm-lockfile" manager)
+podman run --rm -v /tmp/rnv:/usr/src/app:Z -w /usr/src/app \
+  -e RENOVATE_CONFIG_FILE=/usr/src/app/global.json -e LOG_LEVEL=debug \
+  -e GITHUB_COM_TOKEN="$(gh auth token)" \
+  ghcr.io/renovatebot/renovate:latest 2>&1 | grep -E 'Returning [0-9]+ branch'
+```
+
+Note that the `packageFiles with updates` debug dump lists *pre-filter* lookup
+results and will show candidates even for disabled dependencies — only
+`Returning N branch(es)` reflects what MintMaker would actually open.
+
+There is intentionally **no** Renovate GitHub Actions workflow in this repo. One
+existed and was removed: `GITHUB_TOKEN` cannot read Dependabot alerts and cannot
+write to `.github/workflows/`, so it could never reproduce MintMaker's
+behaviour — it only provided a second config surface that gave misleading
+dry-run results.
 
 ## Start here
 
