@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - release-1.23
       - release-1.26
       - backplane-2.11
       - backplane-2.17
@@ -15,7 +16,31 @@ on:
 permissions: {}
 
 jobs:
+  resolve_branches:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      branches: ${{ steps.set-branches.outputs.branches }}
+    steps:
+    - name: Resolve branches to scan
+      id: set-branches
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_REF: ${{ github.base_ref }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        if [ "$EVENT_NAME" = "schedule" ]; then
+          # Keep scheduled scan coverage aligned with the govulncheck workflow and docs.
+          branches='["main","release-1.23","release-1.26","backplane-2.11","backplane-2.17","backplane-5.0","backplane-5.1","backplane-5.2"]'
+        else
+          branch="$REF_NAME"
+          [ "$EVENT_NAME" != "pull_request" ] || branch="$BASE_REF"
+          branches=$(jq -cn --arg branch "$branch" '[$branch]')
+        fi
+        echo "branches=$branches" >> "$GITHUB_OUTPUT"
+
   scan:
+    needs: resolve_branches
     permissions:
       # Required by actions/checkout to read the scanned branch.
       contents: read
@@ -24,8 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep this list aligned with docs/DOWNSTREAM.md and govulncheck.yaml.
-        branch: ${{ fromJSON(github.event_name == 'schedule' && '["main","release-1.26","backplane-2.11","backplane-2.17","backplane-5.0","backplane-5.1","backplane-5.2"]' || format('[{0}]', toJSON(github.event_name == 'pull_request' && github.base_ref || github.ref_name))) }}
+        branch: ${{ fromJSON(needs.resolve_branches.outputs.branches) }}
     name: Trivy (${{ matrix.branch }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -207,7 +231,7 @@ jobs:
       run: exit 1
 
   create-issues:
-    needs: scan
+    needs: [resolve_branches, scan]
     if: always() && !cancelled() && github.event_name != 'pull_request'
     permissions:
       issues: write
@@ -228,16 +252,53 @@ jobs:
         SERVER_URL: ${{ github.server_url }}
         REPO: ${{ github.repository }}
         RUN_ID: ${{ github.run_id }}
+        EXPECTED_BRANCHES: ${{ needs.resolve_branches.outputs.branches }}
       run: |
         shopt -s nullglob
+        mapfile -t EXPECTED_BRANCH_LIST < <(jq -r '.[]' <<< "$EXPECTED_BRANCHES")
+        declare -A EXPECTED_BRANCH_SET=()
+        declare -A SEEN_BRANCH_SET=()
+        for EXPECTED_BRANCH in "${EXPECTED_BRANCH_LIST[@]}"; do
+          EXPECTED_BRANCH_SET["$EXPECTED_BRANCH"]=1
+        done
+
+        # Reporting is fail-closed. A vulnerability we detected but failed to
+        # report is worse than a loud red job, so every failure below records
+        # itself here and the step exits non-zero at the end. The loop still
+        # runs to completion so one bad branch does not hide the others.
+        REPORT_FAILED=0
+        PROCESSED=0
+        fail() { echo "::error::$*"; REPORT_FAILED=1; }
+
+        # gh issue create aborts on a label that does not exist, which used to
+        # mean findings on release-1.26 and the backplane-5.x branches were
+        # silently never filed - only main, backplane-2.11 and backplane-2.17
+        # had labels. Create missing labels up front rather than discovering it
+        # at issue-creation time.
+        ensure_label() {
+          local label="$1" colour="$2" description="$3"
+          if gh api "repos/$GH_REPO/labels/$label" --silent 2>/dev/null; then
+            return 0
+          fi
+          echo "Label '$label' is missing; creating it."
+          gh label create "$label" --color "$colour" --description "$description" \
+            || { fail "Could not create the '$label' label, so findings for it cannot be filed."; return 1; }
+        }
+
         for RESULTS_DIR in trivy-artifacts/trivy-results-*; do
+          PROCESSED=$((PROCESSED + 1))
           SUMMARY_FILE="$RESULTS_DIR/scan-summary.json"
           if [ ! -s "$SUMMARY_FILE" ]; then
-            echo "::warning::Scan summary is missing for $RESULTS_DIR; skipping issue creation."
+            fail "Scan summary is missing for $RESULTS_DIR; that branch's findings cannot be reported."
             continue
           fi
 
           BRANCH="${RESULTS_DIR#trivy-artifacts/trivy-results-}"
+          if [[ -z "${EXPECTED_BRANCH_SET[$BRANCH]+present}" ]]; then
+            fail "Unexpected Trivy result artifact for branch $BRANCH."
+            continue
+          fi
+          SEEN_BRANCH_SET["$BRANCH"]=1
           CRITICAL=$(jq -r '.critical // empty' "$SUMMARY_FILE")
           HIGH=$(jq -r '.high // empty' "$SUMMARY_FILE")
           MEDIUM=$(jq -r '.medium // empty' "$SUMMARY_FILE")
@@ -246,15 +307,21 @@ jobs:
           TOTAL=$(jq -r '.total // empty' "$SUMMARY_FILE")
 
           if ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
-            echo "::warning::Vulnerability count is missing or invalid for $BRANCH; skipping issue creation."
+            fail "Vulnerability count for $BRANCH is missing or invalid ('$TOTAL'); findings cannot be reported."
             continue
           fi
           if [ "$TOTAL" -eq 0 ]; then
             continue
           fi
 
+          ensure_label security d93f0b "Security-related issue" || continue
+          ensure_label trivy d93f0b "Reported by the Trivy scanner" || continue
+          ensure_label "$BRANCH" ededed "Affects the $BRANCH branch" || continue
+
+          # A failed lookup only risks a duplicate issue, which is visible and
+          # harmless, so this one stays a warning.
           EXISTING_ISSUE=$(gh issue list --state open --label "security" --label "trivy" --label "$BRANCH" --json number --jq '.[0].number // empty') || {
-            echo "::warning::Failed to check for existing issues. A duplicate issue may be created."
+            echo "::warning::Failed to check for existing issues on $BRANCH. A duplicate issue may be created."
             EXISTING_ISSUE=""
           }
 
@@ -294,7 +361,7 @@ jobs:
             } > comment_body.md
 
             gh issue comment "$EXISTING_ISSUE" --body-file comment_body.md || {
-              echo "::warning::Failed to update existing issue #$EXISTING_ISSUE with new scan results."
+              fail "Could not update issue #$EXISTING_ISSUE with the latest $BRANCH scan results."
             }
           else
             echo "Creating new issue..."
@@ -350,7 +417,25 @@ jobs:
               --label "trivy" \
               --label "$BRANCH" \
               --body-file issue_body.md || {
-              echo "::warning::Failed to create GitHub issue for security vulnerabilities. Check workflow permissions and GitHub API status."
+              fail "Could not file the Trivy issue for $BRANCH ($TOTAL vulnerabilities). Check workflow permissions and GitHub API status."
             }
           fi
         done
+
+        for EXPECTED_BRANCH in "${EXPECTED_BRANCH_LIST[@]}"; do
+          if [[ -z "${SEEN_BRANCH_SET[$EXPECTED_BRANCH]+present}" ]]; then
+            fail "No Trivy result artifact was found for expected branch $EXPECTED_BRANCH."
+          fi
+        done
+
+        # The download step is continue-on-error, so no artifacts at all would
+        # otherwise look like a clean run.
+        if [ "$PROCESSED" -eq 0 ]; then
+          echo "::error::No Trivy scan artifacts were found. The scans did not report, so this run proves nothing."
+          exit 1
+        fi
+
+        if [ "$REPORT_FAILED" -ne 0 ]; then
+          echo "::error::Trivy found vulnerabilities that could not be reported. See the errors above."
+          exit 1
+        fi

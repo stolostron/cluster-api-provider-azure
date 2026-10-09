@@ -19,6 +19,31 @@
       ".tekton/**"
     ]
   },
+  "gomod": {
+    "packageRules": [
+      {
+        "description": "Keep indirect Go modules on security-only updates. MintMaker's global config re-enables them from inside its own `gomod.packageRules`, which Renovate merges after the top-level rules below, so this counter-rule has to sit at the same specificity to win. Vulnerability alerts force-override it, so security fixes still land.",
+        "matchManagers": [
+          "gomod"
+        ],
+        "matchDepTypes": [
+          "indirect"
+        ],
+        "matchUpdateTypes": [
+          "major",
+          "minor",
+          "patch",
+          "pin",
+          "digest",
+          "pinDigest",
+          "lockFileMaintenance",
+          "rollback",
+          "replacement"
+        ],
+        "enabled": false
+      }
+    ]
+  },
   "packageRules": [
     {
       "description": "GitHub Actions updates are maintained on the default branch only.",
