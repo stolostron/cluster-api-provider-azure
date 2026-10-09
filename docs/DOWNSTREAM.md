@@ -35,8 +35,9 @@ Konflux build/pipeline configuration.
 | Concern | Where it lives | Notes |
 |---------|----------------|-------|
 | Automated upstream sync | [`.github/workflows/upstream-sync.yml`](../.github/workflows/upstream-sync.yml) | Weekly (Mon 08:17 UTC) + manual dispatch. Opens draft PRs that merge upstream release branches into the downstream branches. |
-| Konflux build pipelines | [`.tekton/`](../.tekton) | Tekton `PipelineRun` definitions for MCE releases (`mce-217`, `mce-51`, `mce-50`), split into `-pull-request` and `-push` variants. |
+| Konflux build pipelines | [`.tekton/`](../.tekton) | Tekton `PipelineRun` definitions for MCE releases (`mce-51`, `mce-52`), split into `-pull-request` and `-push` variants. The pipelines themselves are resolved from [`stolostron/konflux-build-catalog`](https://github.com/stolostron/konflux-build-catalog). |
 | Release branches | see sync matrix below | Downstream branches track specific upstream release branches. |
+| Vulnerability scanning and dependency updates | [`VULNERABILITY-MANAGEMENT.md`](VULNERABILITY-MANAGEMENT.md) | Trivy, govulncheck, CodeQL, Konflux scan tasks; update PRs raised by **MintMaker**, not Dependabot. |
 
 ### Branch model
 
@@ -74,6 +75,22 @@ rather than trusting this table if they disagree.
   (`main` / `backplane-5.1` / `backplane-5.0` / `backplane-2.17` / `backplane-2.11`),
   not against upstream.
 
+## Security scanning and dependency updates
+
+Scanning and update-PR creation are separate concerns here, handled by
+different tools: **Trivy** and **govulncheck** for dependency vulnerabilities,
+**CodeQL** for our own code, **MintMaker** (Konflux-hosted Renovate) for update
+PRs, and the weekly upstream sync for everything upstream fixes first.
+Dependabot's PR features are deliberately **off**; its *alerts* stay on because
+Renovate consumes them.
+
+**Read [`VULNERABILITY-MANAGEMENT.md`](VULNERABILITY-MANAGEMENT.md) before
+touching [`renovate.json`](../renovate.json) or any scanning workflow.** It
+covers what runs, when, where the results land, how to triage each one, and —
+importantly — the config-precedence trap where MintMaker's global config
+silently overrides top-level `packageRules` in this repo.
+
+
 ## Start here
 
 | Document | What it covers |
@@ -83,4 +100,5 @@ rather than trusting this table if they disagree.
 | [README.md](../README.md) | Project overview, prerequisites, quick start. |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Upstream contribution workflow and conventions. |
 | [docs/README.md](README.md) | Documentation index (links into the CAPZ book at capz.sigs.k8s.io). |
+| [VULNERABILITY-MANAGEMENT.md](VULNERABILITY-MANAGEMENT.md) | **Downstream** — what scans what, when, where results land, how to triage, and who opens the fix PRs. |
 | [SECURITY.md](../SECURITY.md) / [SUPPORT.md](../SUPPORT.md) | Vulnerability reporting and support channels. |
