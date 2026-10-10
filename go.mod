@@ -1,8 +1,8 @@
 module sigs.k8s.io/cluster-api-provider-azure
 
-go 1.25.7
+go 1.26.0
 
-toolchain go1.25.14
+toolchain go1.26.9
 
 // These types are not yet available in upstream Azure/azure-service-operator.
 replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.18.0-hcpclusters.3
@@ -46,7 +46,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/mock v0.6.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b
 	golang.org/x/mod v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
