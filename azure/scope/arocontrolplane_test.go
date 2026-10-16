@@ -637,11 +637,11 @@ func TestAROControlPlaneScope_KeyVaultMethods(t *testing.T) {
 		description     string
 	}{
 		{
-			name: "get vault ID from HcpOpenShiftCluster with encryption (v20260901preview)",
+			name: "get vault ID from HcpOpenShiftCluster with encryption (v20261001)",
 			resources: []runtime.RawExtension{
 				{
 					Raw: []byte(`{
-						"apiVersion": "redhatopenshift.azure.com/v20260901preview",
+						"apiVersion": "redhatopenshift.azure.com/v20261001",
 						"kind": "HcpOpenShiftCluster",
 						"metadata": {"name": "test-cluster"},
 						"spec": {
@@ -666,14 +666,14 @@ func TestAROControlPlaneScope_KeyVaultMethods(t *testing.T) {
 				},
 			},
 			expectedVaultID: "my-vault-2025",
-			description:     "should extract vault name from kms level in v20260901preview",
+			description:     "should extract vault name from kms level in v20261001",
 		},
 		{
 			name: "no encryption configured",
 			resources: []runtime.RawExtension{
 				{
 					Raw: []byte(`{
-						"apiVersion": "redhatopenshift.azure.com/v20260901preview",
+						"apiVersion": "redhatopenshift.azure.com/v20261001",
 						"kind": "HcpOpenShiftCluster",
 						"metadata": {"name": "test-cluster"},
 						"spec": {
