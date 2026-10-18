@@ -21,7 +21,7 @@ import (
 	"errors"
 	"testing"
 
-	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20261001"
 	"github.com/google/go-cmp/cmp"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -233,7 +233,7 @@ func TestSetHcpOpenShiftNodePoolDefaults(t *testing.T) {
 						{
 							Raw: mustMarshalJSON(&unstructured.Unstructured{
 								Object: map[string]interface{}{
-									"apiVersion": "redhatopenshift.azure.com/v20260901preview",
+									"apiVersion": "redhatopenshift.azure.com/v20261001",
 									"kind":       "HcpOpenShiftClustersNodePool",
 									"metadata": map[string]interface{}{
 										"name": "test-nodepool",
@@ -265,7 +265,7 @@ func TestSetHcpOpenShiftNodePoolDefaults(t *testing.T) {
 						{
 							Raw: mustMarshalJSON(&unstructured.Unstructured{
 								Object: map[string]interface{}{
-									"apiVersion": "redhatopenshift.azure.com/v20260901preview",
+									"apiVersion": "redhatopenshift.azure.com/v20261001",
 									"kind":       "HcpOpenShiftClustersNodePool",
 									"metadata": map[string]interface{}{
 										"name": "test-nodepool",
@@ -334,6 +334,34 @@ func TestSetHcpOpenShiftNodePoolDefaults(t *testing.T) {
 					g.Expect(test.machinePool.Annotations).NotTo(HaveKey(clusterv1.ReplicasManagedByAnnotation))
 				}
 			}
+		})
+	}
+}
+
+func TestSetHcpOpenShiftNodePoolDefaultsSupportsPreviewAndGA(t *testing.T) {
+	for _, version := range []string{"v20260901preview", "v20261001"} {
+		t.Run(version, func(t *testing.T) {
+			g := NewGomegaWithT(t)
+			resource := &unstructured.Unstructured{}
+			resource.SetAPIVersion("redhatopenshift.azure.com/" + version)
+			resource.SetKind("HcpOpenShiftClustersNodePool")
+			resource.SetName("test-nodepool")
+			resource.Object["spec"] = map[string]interface{}{}
+
+			pool := &infrav1exp.AROMachinePool{
+				Spec: infrav1exp.AROMachinePoolSpec{
+					Resources: []runtime.RawExtension{{Raw: mustMarshalJSON(resource)}},
+				},
+			}
+			mutator := SetHcpOpenShiftNodePoolDefaults(nil, pool, "test-cluster", &clusterv1.MachinePool{})
+
+			mutatedResources, err := ApplyMutators(t.Context(), pool.Spec.Resources, mutator)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			owner, found, err := unstructured.NestedMap(mutatedResources[0].UnstructuredContent(), "spec", "owner")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(found).To(BeTrue())
+			g.Expect(owner).To(HaveKeyWithValue("name", "test-cluster"))
 		})
 	}
 }

@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	asocontainerservicev1 "github.com/Azure/azure-service-operator/v2/api/containerservice/v1api20250801"
-	asocontainerservicev1hub "github.com/Azure/azure-service-operator/v2/api/containerservice/v1api20250801/storage"
+	asocontainerservicev1hub "github.com/Azure/azure-service-operator/v2/api/containerservice/v20260501/storage"
 	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	. "github.com/onsi/gomega"
 	"k8s.io/utils/ptr"
@@ -36,7 +36,10 @@ func Test_AgentPoolToManagedClusterAgentPoolProfile(t *testing.T) {
 			name: "Should set all values correctly",
 			pool: &asocontainerservicev1hub.ManagedClustersAgentPool{
 				Spec: asocontainerservicev1hub.ManagedClustersAgentPool_Spec{
-					AzureName:           "agentpool1",
+					AzureName: "agentpool1",
+					ArtifactStreamingProfile: &asocontainerservicev1hub.AgentPoolArtifactStreamingProfile{
+						Enabled: ptr.To(true),
+					},
 					VmSize:              ptr.To("Standard_D2s_v3"),
 					OsType:              ptr.To(string(asocontainerservicev1.OSType_Linux)),
 					OsDiskSizeGB:        ptr.To(100),
@@ -62,12 +65,19 @@ func Test_AgentPoolToManagedClusterAgentPoolProfile(t *testing.T) {
 					},
 					EnableFIPS:             ptr.To(true),
 					EnableEncryptionAtHost: ptr.To(true),
+					LocalDNSProfile: &asocontainerservicev1hub.LocalDNSProfile{
+						Mode: ptr.To("Preferred"),
+					},
+					NodeImageVersion: ptr.To("2026.10.01"),
 				},
 			},
 
 			expect: func(g *GomegaWithT, result asocontainerservicev1hub.ManagedClusterAgentPoolProfile) {
 				g.Expect(result).To(Equal(asocontainerservicev1hub.ManagedClusterAgentPoolProfile{
-					Name:                ptr.To("agentpool1"),
+					Name: ptr.To("agentpool1"),
+					ArtifactStreamingProfile: &asocontainerservicev1hub.AgentPoolArtifactStreamingProfile{
+						Enabled: ptr.To(true),
+					},
 					VmSize:              ptr.To("Standard_D2s_v3"),
 					OsType:              ptr.To(string(asocontainerservicev1.OSType_Linux)),
 					OsDiskSizeGB:        ptr.To(100),
@@ -93,6 +103,10 @@ func Test_AgentPoolToManagedClusterAgentPoolProfile(t *testing.T) {
 					},
 					EnableFIPS:             ptr.To(true),
 					EnableEncryptionAtHost: ptr.To(true),
+					LocalDNSProfile: &asocontainerservicev1hub.LocalDNSProfile{
+						Mode: ptr.To("Preferred"),
+					},
+					NodeImageVersion: ptr.To("2026.10.01"),
 				}))
 			},
 		},
