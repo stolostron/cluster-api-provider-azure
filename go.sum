@@ -355,8 +355,8 @@ github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de h1:9TO3cAIGXtEhn
 github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de/go.mod h1:zAbeS9B/r2mtpb6U+EI2rYA5OAXxsYw6wTamcNW+zcE=
 github.com/lithammer/dedent v1.1.0 h1:VNzHMVCBNG1j0fh3OrsFRkVUwStdDArbgBWoPAffktY=
 github.com/lithammer/dedent v1.1.0/go.mod h1:jrXYCQtgg0nJiN+StA2KgR7w6CiQNv9Fd/Z9BP0jIOc=
-github.com/marek-veber/azure-service-operator/v2 v2.22.0-hcpclusters.1 h1:QVGUTLJue0T5zk8YlOGdjL2E8b2+SeclBFGepurse0c=
-github.com/marek-veber/azure-service-operator/v2 v2.22.0-hcpclusters.1/go.mod h1:Eu3EL9YEZyOpHl5ACIEiooW57BBLFFk27U0dRPC2u7U=
+github.com/marek-veber/azure-service-operator/v2 v2.22.0-hcpclusters.2 h1:A0OjAOK3dQ75VbrbNsuXZculGsVW3OmnAYQEYrm7XbA=
+github.com/marek-veber/azure-service-operator/v2 v2.22.0-hcpclusters.2/go.mod h1:Eu3EL9YEZyOpHl5ACIEiooW57BBLFFk27U0dRPC2u7U=
 github.com/maruel/natural v1.1.1 h1:Hja7XhhmvEFhcByqDoHz9QZbkWey+COd9xWfCfn1ioo=
 github.com/maruel/natural v1.1.1/go.mod h1:v+Rfd79xlw1AgVBjbO0BEQmptqb5HvL/k9GRHB7ZKEg=
 github.com/mattn/go-colorable v0.1.15 h1:+u9SLTRGnXv73cEsnsmoZBom+dMU88B2M0aDcWy0/jY=
