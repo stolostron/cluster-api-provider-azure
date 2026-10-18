@@ -42,6 +42,7 @@ import (
 	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	cgrecord "k8s.io/client-go/tools/record"
@@ -102,10 +103,10 @@ func init() {
 	_ = asokeyvaultv1.AddToScheme(scheme)
 	_ = asokubernetesconfigurationv1.AddToScheme(scheme)
 	_ = asomanagedidentityv1api20230131.AddToScheme(scheme)
-	_ = asoredhatopenshiftv2026preview.AddToScheme(scheme)
-	_ = asoredhatopenshiftv2026previewhub.AddToScheme(scheme)
-	_ = asoredhatopenshiftv20261001.AddToScheme(scheme)
-	_ = asoredhatopenshiftv20261001hub.AddToScheme(scheme)
+	utilruntime.Must(asoredhatopenshiftv2026preview.AddToScheme(scheme))
+	utilruntime.Must(asoredhatopenshiftv2026previewhub.AddToScheme(scheme))
+	utilruntime.Must(asoredhatopenshiftv20261001.AddToScheme(scheme))
+	utilruntime.Must(asoredhatopenshiftv20261001hub.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
