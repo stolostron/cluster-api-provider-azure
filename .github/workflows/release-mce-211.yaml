@@ -1,0 +1,47 @@
+name: Create MCE 2.11 Release
+
+on:
+  push:
+    tags:
+      - v1.22.1-mce-211
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: v1.22.1-mce-211
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+      - name: Check out tagged commit
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+      - name: Verify release source and notes
+        run: |
+          git fetch origin backplane-2.11
+          git merge-base --is-ancestor HEAD FETCH_HEAD
+          test -s CHANGELOG/v1.22.1-mce-211.md
+      - name: Get Go version
+        run: echo "go_version=$(make go-version)" >> "$GITHUB_ENV"
+      - name: Set up Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version: ${{ env.go_version }}
+      - name: Generate release artifacts
+        run: make release
+      - name: Create draft release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          draft: true
+          files: out/*
+          body_path: CHANGELOG/v1.22.1-mce-211.md
+          tag_name: v1.22.1-mce-211
