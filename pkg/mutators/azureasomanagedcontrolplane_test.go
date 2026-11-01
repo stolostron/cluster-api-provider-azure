@@ -24,6 +24,7 @@ import (
 
 	asocontainerservicev1 "github.com/Azure/azure-service-operator/v2/api/containerservice/v1api20250801"
 	asocontainerservicev1preview "github.com/Azure/azure-service-operator/v2/api/containerservice/v20251002preview"
+	asocontainerservicev1hub "github.com/Azure/azure-service-operator/v2/api/containerservice/v20260501/storage"
 	"github.com/Azure/azure-service-operator/v2/pkg/genruntime"
 	"github.com/google/go-cmp/cmp"
 	. "github.com/onsi/gomega"
@@ -807,8 +808,15 @@ func TestSetAgentPoolProfilesFromAgentPools(t *testing.T) {
 			},
 			&asocontainerservicev1preview.ManagedClustersAgentPool{
 				Spec: asocontainerservicev1preview.ManagedClustersAgentPool_Spec{
-					AzureName:                "pool1",
+					AzureName: "pool1",
+					ArtifactStreamingProfile: &asocontainerservicev1preview.AgentPoolArtifactStreamingProfile{
+						Enabled: ptr.To(true),
+					},
+					LocalDNSProfile: &asocontainerservicev1preview.LocalDNSProfile{
+						Mode: ptr.To(asocontainerservicev1preview.LocalDNSProfile_Mode_Preferred),
+					},
 					MinCount:                 ptr.To(2),
+					NodeImageVersion:         ptr.To("2026.10.01"),
 					NodeInitializationTaints: []string{"preview-only-taint"},
 				},
 			},
@@ -819,11 +827,23 @@ func TestSetAgentPoolProfilesFromAgentPools(t *testing.T) {
 				MaxCount: ptr.To(1),
 			},
 			{
-				Name:                     ptr.To("pool1"),
+				Name: ptr.To("pool1"),
+				ArtifactStreamingProfile: &asocontainerservicev1preview.AgentPoolArtifactStreamingProfile{
+					Enabled: ptr.To(true),
+				},
+				LocalDNSProfile: &asocontainerservicev1preview.LocalDNSProfile{
+					Mode: ptr.To(asocontainerservicev1preview.LocalDNSProfile_Mode_Preferred),
+				},
 				MinCount:                 ptr.To(2),
+				NodeImageVersion:         ptr.To("2026.10.01"),
 				NodeInitializationTaints: []string{"preview-only-taint"},
 			},
 		}
+		hubPool := &asocontainerservicev1hub.ManagedClustersAgentPool{}
+		g.Expect(pools[1].ConvertTo(hubPool)).To(Succeed())
+		g.Expect(hubPool.Spec.ArtifactStreamingProfile).To(Equal(&asocontainerservicev1hub.AgentPoolArtifactStreamingProfile{Enabled: ptr.To(true)}))
+		g.Expect(hubPool.Spec.LocalDNSProfile).To(Equal(&asocontainerservicev1hub.LocalDNSProfile{Mode: ptr.To("Preferred")}))
+		g.Expect(hubPool.Spec.NodeImageVersion).To(Equal(ptr.To("2026.10.01")))
 
 		err := setAgentPoolProfilesFromAgentPools(mc, pools)
 		g.Expect(err).NotTo(HaveOccurred())
