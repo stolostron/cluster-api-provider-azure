@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.9
 
 // These types are not yet available in upstream Azure/azure-service-operator.
-replace github.com/Azure/azure-service-operator/v2 => github.com/marek-veber/azure-service-operator/v2 v2.22.0-hcpclusters.2
+replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.23.0-hcpclusters.1
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
@@ -23,7 +23,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resourcehealth/armresourcehealth v1.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources v1.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/tracing/azotel v0.4.0
-	github.com/Azure/azure-service-operator/v2 v2.22.0-hcpclusters.1
+	github.com/Azure/azure-service-operator/v2 v2.23.0-hcpclusters.1
 	github.com/Azure/msi-dataplane v0.4.3
 	github.com/asaskevich/govalidator/v11 v11.0.2-0.20250122183457-e11347878e23
 	github.com/blang/semver v3.5.1+incompatible
