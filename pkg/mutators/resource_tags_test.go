@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20260901preview"
+	asoredhatopenshiftv2026 "github.com/Azure/azure-service-operator/v2/api/redhatopenshift/v20261001"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -204,6 +204,24 @@ func TestSetResourceTags(t *testing.T) {
 			g.Expect(err).NotTo(HaveOccurred())
 
 			test.validateTags(g, test.resources)
+		})
+	}
+}
+
+func TestSetResourceTagsSupportsPreviewAndGA(t *testing.T) {
+	for _, version := range []string{"v20260901preview", "v20261001"} {
+		t.Run(version, func(t *testing.T) {
+			g := NewWithT(t)
+			resource := hcpClusterUnstructured(nil)
+			resource.SetAPIVersion("redhatopenshift.azure.com/" + version)
+
+			err := SetResourceTags("my-cluster", time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC))(t.Context(), []*unstructured.Unstructured{resource})
+
+			g.Expect(err).NotTo(HaveOccurred())
+			tags, found, err := unstructured.NestedStringMap(resource.UnstructuredContent(), "spec", "tags")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(found).To(BeTrue())
+			g.Expect(tags).To(HaveKeyWithValue(tagCreatedBy, tagCreatedByValue))
 		})
 	}
 }
