@@ -60,8 +60,8 @@ require (
 	k8s.io/kubectl v0.37.1
 	k8s.io/utils v0.0.0-20260626114624-be93311217bd
 	sigs.k8s.io/cloud-provider-azure v1.34.3
-	sigs.k8s.io/cluster-api v1.14.2
-	sigs.k8s.io/cluster-api/api v1.14.2
+	sigs.k8s.io/cluster-api v1.14.3
+	sigs.k8s.io/cluster-api/api v1.14.3
 	sigs.k8s.io/cluster-api/test v1.14.3
 	sigs.k8s.io/controller-runtime v0.25.2
 	sigs.k8s.io/kind v0.33.0
