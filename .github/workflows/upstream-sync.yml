@@ -297,25 +297,14 @@ jobs:
             git commit -m "chore: update upstream sync state"
           fi
 
-      - name: Push state update when all commits were skipped
-        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied == '0' && steps.cherry-pick.outputs.skipped != '0'
-        env:
-          SYNC_BRANCH: ${{ steps.cherry-pick.outputs.branch }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          STATE_SHA=$(git rev-parse "$SYNC_BRANCH")
-          git checkout "$TARGET"
-          git cherry-pick --no-edit "$STATE_SHA"
-          git push origin "$TARGET"
-          echo "Pushed sync state update directly to ${TARGET} (all commits already applied)"
-
       - name: Push and create draft PR
-        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && steps.cherry-pick.outputs.applied != '0'
+        if: steps.find-commits.outputs.count != '0' && steps.existing-pr.outputs.number == '' && (steps.cherry-pick.outputs.applied != '0' || (steps.cherry-pick.outputs.skipped != '0' && steps.cherry-pick.outputs.conflict_full_sha == ''))
         env:
           GH_TOKEN: ${{ secrets.SYNC_PAT }}
           SYNC_BRANCH: ${{ steps.cherry-pick.outputs.branch }}
           APPLIED: ${{ steps.cherry-pick.outputs.applied }}
           TOTAL: ${{ steps.cherry-pick.outputs.total }}
+          LAST_PROCESSED: ${{ steps.cherry-pick.outputs.last_processed }}
           EXCLUDED: ${{ steps.cherry-pick.outputs.excluded }}
           CONFLICT_SHA: ${{ steps.cherry-pick.outputs.conflict_sha }}
           CONFLICT_TITLE: ${{ steps.cherry-pick.outputs.conflict_title }}
@@ -329,17 +318,30 @@ jobs:
           UPSTREAM: ${{ matrix.upstream }}
         run: |
           DATE=$(date +%Y-%m-%d)
+          if [ "${APPLIED:-0}" -eq 0 ] && [ "${SKIPPED:-0}" -gt 0 ]; then
+            PR_TITLE="Upstream sync state update ${TARGET} ← ${UPSTREAM} (${DATE})"
+          else
+            PR_TITLE="Upstream sync ${TARGET} ← ${UPSTREAM} (${DATE}): ${APPLIED}/${TOTAL} commits"
+          fi
 
           git push origin "$SYNC_BRANCH"
 
           {
             echo "## Upstream Sync — ${DATE}"
             echo ""
-            echo "Applied **${APPLIED}/${TOTAL}** commits from [kubernetes-sigs/cluster-api-provider-azure](https://github.com/kubernetes-sigs/cluster-api-provider-azure) \`${UPSTREAM}\` into \`${TARGET}\`."
-            echo ""
-            echo "### Applied"
-            echo "$APPLIED_LINES"
-            echo ""
+            if [ "${APPLIED:-0}" -eq 0 ] && [ "${SKIPPED:-0}" -gt 0 ]; then
+              echo "No source commits needed to be applied; ${SKIPPED} commits were already present in \`${TARGET}\`. This PR advances the sync state through \`${LAST_PROCESSED}\` so the next run can continue."
+              echo ""
+            else
+              echo "Applied **${APPLIED}/${TOTAL}** commits from [kubernetes-sigs/cluster-api-provider-azure](https://github.com/kubernetes-sigs/cluster-api-provider-azure) \`${UPSTREAM}\` into \`${TARGET}\`."
+              echo ""
+            fi
+
+            if [ "${APPLIED:-0}" -gt 0 ]; then
+              echo "### Applied"
+              echo "$APPLIED_LINES"
+              echo ""
+            fi
 
             if [ "${EXCLUDED:-0}" -gt 0 ]; then
               echo "### 🚫 Excluded (${EXCLUDED})"
@@ -385,7 +387,7 @@ jobs:
 
           gh pr create \
             --repo stolostron/cluster-api-provider-azure \
-            --title "Upstream sync ${TARGET} ← ${UPSTREAM} (${DATE}): ${APPLIED}/${TOTAL} commits" \
+            --title "$PR_TITLE" \
             --body-file /tmp/pr-body.md \
             --base "$TARGET" \
             --head "$SYNC_BRANCH" \
