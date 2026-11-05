@@ -52,7 +52,7 @@ jobs:
       matrix:
         # Keep the scheduled scan coverage aligned with daily-security-scan.yaml and
         # docs/VULNERABILITY-MANAGEMENT.md. Only 5.1 and 5.2 fast-forward from main;
-        # backplane-5.0 receives direct updates when its scans find issues.
+        # backplane-5.0 follows release-1.26 via its branch-specific ffwd workflow.
         # release-1.23 feeds an ACM build defined outside this repo.
         branch: ${{ fromJSON(needs.resolve_branches.outputs.branches) }}
     runs-on: ubuntu-latest
@@ -340,7 +340,7 @@ jobs:
             fi
 
             if [ "$BRANCH" = "backplane-5.0" ]; then
-              REMEDIATION_PATH="1. Apply the fix to \`backplane-5.0\` through a direct update PR; this branch is not a MintMaker target or fast-forwarded from \`main\`."
+              REMEDIATION_PATH="1. Apply the fix to \`release-1.26\`; its [fast-forward workflow](https://github.com/stolostron/cluster-api-provider-azure/blob/release-1.26/.github/workflows/ffwd-branch.yaml) carries the change into \`backplane-5.0\`."
             else
               REMEDIATION_PATH="1. Check whether MintMaker already has an open \`Security fixes\` PR for \`${BRANCH}\`."
             fi
