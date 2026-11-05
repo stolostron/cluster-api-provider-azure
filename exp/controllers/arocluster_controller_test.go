@@ -526,7 +526,7 @@ func TestAROClusterReconciler_reconcileDelete(t *testing.T) {
 				Client:           fakeClient,
 				WatchFilterValue: "",
 				newResourceReconciler: func(aroCluster *infrav2.AROCluster, resources []*unstructured.Unstructured) *controllers.ResourceReconciler {
-					return controllers.NewResourceReconciler(fakeClient, resources, aroCluster)
+					return controllers.NewResourceReconciler(fakeClient, aroCluster, nil, resources)
 				},
 			}
 
@@ -602,7 +602,7 @@ func TestAROClusterReconciler_reconcileDeleteRequeuesWhenResourcesRemain(t *test
 		Client:           fakeClient,
 		WatchFilterValue: "",
 		newResourceReconciler: func(ac *infrav2.AROCluster, resources []*unstructured.Unstructured) *controllers.ResourceReconciler {
-			return controllers.NewResourceReconciler(fakeClient, resources, ac)
+			return controllers.NewResourceReconciler(fakeClient, ac, nil, resources)
 		},
 	}
 
