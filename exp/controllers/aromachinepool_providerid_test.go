@@ -161,7 +161,7 @@ func TestProviderIDListSync_AzureNameMatchesK8sName(t *testing.T) {
 		tracker:    tracker,
 		cluster:    cluster,
 		newResourceReconciler: func(machinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
-			return basecontrollers.NewResourceReconciler(mgmtClient, resources, machinePool)
+			return basecontrollers.NewResourceReconciler(mgmtClient, machinePool, nil, resources)
 		},
 	}
 
@@ -295,7 +295,7 @@ func TestProviderIDListSync_AzureNameDiffersFromK8sName(t *testing.T) {
 		tracker:    tracker,
 		cluster:    cluster,
 		newResourceReconciler: func(machinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
-			return basecontrollers.NewResourceReconciler(mgmtClient, resources, machinePool)
+			return basecontrollers.NewResourceReconciler(mgmtClient, machinePool, nil, resources)
 		},
 	}
 
@@ -433,7 +433,7 @@ func TestProviderIDListSync_BaseDomainPrefixDiffersFromCAPIName(t *testing.T) {
 		tracker:    tracker,
 		cluster:    cluster,
 		newResourceReconciler: func(machinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
-			return basecontrollers.NewResourceReconciler(mgmtClient, resources, machinePool)
+			return basecontrollers.NewResourceReconciler(mgmtClient, machinePool, nil, resources)
 		},
 	}
 
