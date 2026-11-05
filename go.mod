@@ -2,7 +2,7 @@ module sigs.k8s.io/cluster-api-provider-azure
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 // These types are not yet available in upstream Azure/azure-service-operator.
 replace github.com/Azure/azure-service-operator/v2 => github.com/stolostron/azure-service-operator/v2 v2.18.0-hcpclusters.3
