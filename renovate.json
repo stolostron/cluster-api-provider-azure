@@ -11,7 +11,7 @@
   ],
   "baseBranchPatterns": [
     "main",
-    "release-1.26",
+    "/^release-[0-9]+\\.[0-9]+$/",
     "/^backplane-2\\.[0-9]+$/"
   ],
   "tekton": {
@@ -57,7 +57,7 @@
       "enabled": false
     },
     {
-      "description": "Tekton updates follow the main and maintained backplane branches.",
+      "description": "Keep Tekton version updates off release branches.",
       "matchManagers": [
         "tekton"
       ],
