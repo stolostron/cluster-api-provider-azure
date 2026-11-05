@@ -81,7 +81,9 @@ func NewResourceReconciler(c client.Client, resources []*unstructured.Unstructur
 }
 
 // WithChildrenFirst configures the ResourceReconciler to delete child resources
-// before their parents, using ASO owner references to determine the hierarchy.
+// before their dependencies, using ASO owner references, ARM IDs, and
+// Kubernetes resource references in resource specifications to determine the
+// hierarchy.
 func WithChildrenFirst() func(*ResourceReconciler) {
 	return func(r *ResourceReconciler) {
 		r.childrenFirst = true
@@ -212,7 +214,11 @@ func (r *ResourceReconciler) reconcile(ctx context.Context) error {
 
 	var deferred sets.Set[types.UID]
 	if r.childrenFirst {
-		deferred = deferShallowerResources(toBeDeletedResources)
+		resourcesForOrdering, err := r.resourcesForOrdering(ctx, toBeDeletedResources)
+		if err != nil {
+			return fmt.Errorf("failed to get resources for deletion ordering: %w", err)
+		}
+		deferred = deferShallowerResources(toBeDeletedResources, resourcesForOrdering)
 	}
 	for _, obj := range toBeDeletedResources {
 		if deferred.Has(obj.UID) {
@@ -407,15 +413,92 @@ func statusResource(resource *unstructured.Unstructured) infrav1.StatusResource 
 	}
 }
 
+// resourcesForOrdering loads the full ASO objects for resources being deleted.
+// Their specs contain ARM IDs and Kubernetes resource references for
+// dependencies that are not represented by owner references.
+func (r *ResourceReconciler) resourcesForOrdering(ctx context.Context, resources []*metav1.PartialObjectMetadata) (map[types.UID]*unstructured.Unstructured, error) {
+	objects := make(map[types.UID]*unstructured.Unstructured, len(resources))
+	for _, resource := range resources {
+		object := &unstructured.Unstructured{}
+		object.SetGroupVersionKind(resource.GroupVersionKind())
+		if err := r.Get(ctx, client.ObjectKeyFromObject(resource), object); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, fmt.Errorf("failed to get %s %s/%s: %w", resource.GroupVersionKind(), resource.Namespace, resource.Name, err)
+		}
+		objects[resource.UID] = object
+	}
+	return objects, nil
+}
+
 // deferShallowerResources returns the set of UIDs that should NOT be deleted
-// this cycle. It computes the depth of each resource (hops to root via
-// non-controller owner references) and only allows the deepest level to
-// proceed. This ensures leaf resources (e.g. Subnet) are deleted before
-// shallower ones (e.g. NSG), respecting implicit Azure-level dependencies.
-func deferShallowerResources(resources []*metav1.PartialObjectMetadata) sets.Set[types.UID] {
+// this cycle. It computes the depth of each resource from owner references,
+// ARM IDs, and Kubernetes resource references, then allows only the deepest
+// level to proceed.
+func deferShallowerResources(resources []*metav1.PartialObjectMetadata, objects map[types.UID]*unstructured.Unstructured) sets.Set[types.UID] {
 	pending := make(map[types.UID]*metav1.PartialObjectMetadata, len(resources))
 	for _, obj := range resources {
 		pending[obj.UID] = obj
+	}
+
+	dependencies := make(map[types.UID]sets.Set[types.UID], len(resources))
+	resourcesByReference := make(map[resourceReferenceKey]types.UID, len(resources))
+	for _, resource := range resources {
+		dependencies[resource.UID] = sets.New[types.UID]()
+		gvk := resource.GroupVersionKind()
+		resourcesByReference[resourceReferenceKey{
+			group: gvk.Group,
+			kind:  gvk.Kind,
+			name:  resource.Name,
+		}] = resource.UID
+		for i := range resource.OwnerReferences {
+			ref := &resource.OwnerReferences[i]
+			if ref.Controller != nil && *ref.Controller {
+				continue
+			}
+			if _, inSet := pending[ref.UID]; inSet {
+				dependencies[resource.UID].Insert(ref.UID)
+			}
+		}
+	}
+
+	resourceIDs := make(map[string]types.UID, len(objects))
+	for uid, object := range objects {
+		id, found, err := unstructured.NestedString(object.Object, "status", "id")
+		if err == nil && found && id != "" {
+			if id = normalizeARMID(id); id != "" {
+				resourceIDs[id] = uid
+			}
+		}
+	}
+	for uid, object := range objects {
+		spec, found, err := unstructured.NestedFieldNoCopy(object.Object, "spec")
+		if err != nil || !found {
+			continue
+		}
+		visitARMIDs(spec, func(id string) {
+			id = normalizeARMID(id)
+			var bestMatch string
+			var dependency types.UID
+			for resourceID, candidate := range resourceIDs {
+				if candidate == uid || !isARMIDParent(resourceID, id) {
+					continue
+				}
+				if len(resourceID) > len(bestMatch) {
+					bestMatch = resourceID
+					dependency = candidate
+				}
+			}
+			if bestMatch != "" {
+				dependencies[uid].Insert(dependency)
+			}
+		})
+		visitKubernetesResourceReferences(spec, func(reference resourceReferenceKey) {
+			if dependency, found := resourcesByReference[reference]; found && dependency != uid {
+				dependencies[uid].Insert(dependency)
+			}
+		})
 	}
 
 	depth := make(map[types.UID]int, len(resources))
@@ -425,17 +508,10 @@ func deferShallowerResources(resources []*metav1.PartialObjectMetadata) sets.Set
 			return d
 		}
 		depth[uid] = 0 // guard against cycles
-		obj := pending[uid]
 		maxParentDepth := -1
-		for i := range obj.OwnerReferences {
-			ref := &obj.OwnerReferences[i]
-			if ref.Controller != nil && *ref.Controller {
-				continue
-			}
-			if _, inSet := pending[ref.UID]; inSet {
-				if pd := computeDepth(ref.UID); pd > maxParentDepth {
-					maxParentDepth = pd
-				}
+		for dependency := range dependencies[uid] {
+			if pd := computeDepth(dependency); pd > maxParentDepth {
+				maxParentDepth = pd
 			}
 		}
 		depth[uid] = maxParentDepth + 1
@@ -456,6 +532,57 @@ func deferShallowerResources(resources []*metav1.PartialObjectMetadata) sets.Set
 		}
 	}
 	return deferred
+}
+
+func normalizeARMID(id string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(id)), "/")
+}
+
+func isARMIDParent(resourceID, referenceID string) bool {
+	return referenceID == resourceID || strings.HasPrefix(referenceID, resourceID+"/")
+}
+
+func visitARMIDs(value any, visit func(string)) {
+	switch value := value.(type) {
+	case string:
+		if strings.HasPrefix(strings.TrimSpace(value), "/") {
+			visit(value)
+		}
+	case []any:
+		for _, element := range value {
+			visitARMIDs(element, visit)
+		}
+	case map[string]any:
+		for _, element := range value {
+			visitARMIDs(element, visit)
+		}
+	}
+}
+
+type resourceReferenceKey struct {
+	group string
+	kind  string
+	name  string
+}
+
+func visitKubernetesResourceReferences(value any, visit func(resourceReferenceKey)) {
+	switch value := value.(type) {
+	case []any:
+		for _, element := range value {
+			visitKubernetesResourceReferences(element, visit)
+		}
+	case map[string]any:
+		group, groupFound := value["group"].(string)
+		kind, kindFound := value["kind"].(string)
+		name, nameFound := value["name"].(string)
+		armID, _ := value["armId"].(string)
+		if groupFound && kindFound && nameFound && group != "" && kind != "" && name != "" && armID == "" {
+			visit(resourceReferenceKey{group: group, kind: kind, name: name})
+		}
+		for _, element := range value {
+			visitKubernetesResourceReferences(element, visit)
+		}
+	}
 }
 
 func metadataRefersToResource(metadata *metav1.PartialObjectMetadata) func(*unstructured.Unstructured) bool {
