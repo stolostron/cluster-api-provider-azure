@@ -23,7 +23,7 @@ RUN  --mount=type=cache,target=/root/.local/share/golang \
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.local/share/golang \
-    CGO_ENABLED=1 GOOS=linux GOARCH=${ARCH} go build -o ./manager .
+    CGO_ENABLED=1 GOEXPERIMENT=strictfipsruntime GOOS=linux GOARCH=${ARCH} go build -o ./manager .
 
 RUN /usr/bin/strip ./manager
 
