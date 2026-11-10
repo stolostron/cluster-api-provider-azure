@@ -181,8 +181,8 @@ MANIFEST_ROOT ?= config
 CRD_ROOT ?= $(MANIFEST_ROOT)/crd/bases
 WEBHOOK_ROOT ?= $(MANIFEST_ROOT)/webhook
 RBAC_ROOT ?= $(MANIFEST_ROOT)/rbac
-ASO_VERSION := v2.20.0-hcpclusters.1
-ASO_CRDS := resourcegroups.resources.azure.com natgateways.network.azure.com managedclusters.containerservice.azure.com managedclustersagentpools.containerservice.azure.com bastionhosts.network.azure.com virtualnetworks.network.azure.com virtualnetworkssubnets.network.azure.com privateendpoints.network.azure.com fleetsmembers.containerservice.azure.com extensions.kubernetesconfiguration.azure.com maintenanceconfigurations.containerservice.azure.com userassignedidentities.managedidentity.azure.com roleassignments.authorization.azure.com networksecuritygroups.network.azure.com vaults.keyvault.azure.com hcpopenshiftclusters.redhatopenshift.azure.com hcpopenshiftclustersnodepools.redhatopenshift.azure.com hcpopenshiftclustersexternalauths.redhatopenshift.azure.com
+ASO_VERSION := $(shell go list -m -f '{{ .Version }}' github.com/Azure/azure-service-operator/v2)
+ASO_CRDS := resourcegroups.resources.azure.com natgateways.network.azure.com managedclusters.containerservice.azure.com managedclustersagentpools.containerservice.azure.com bastionhosts.network.azure.com virtualnetworks.network.azure.com virtualnetworkssubnets.network.azure.com privateendpoints.network.azure.com fleetsmembers.containerservice.azure.com extensions.kubernetesconfiguration.azure.com maintenanceconfigurations.containerservice.azure.com
 
 # Allow overriding the imagePullPolicy
 PULL_POLICY ?= Always
@@ -331,19 +331,9 @@ verify-tiltfile: ## Verify Tiltfile format.
 verify-codespell: codespell ## Verify codespell.
 	@$(CODESPELL) $(ROOT_DIR) --ignore-words=$(ROOT_DIR)/.codespellignore --skip="*.git,*_artifacts,*.sum,$(ROOT_DIR)/docs/book/bookout,$(ROOT_DIR)/hack/tools/bin/codespell_dist"
 
-# Scan the pinned verifier executable directly; hack/tools/tools.go imports a package main.
 .PHONY: verify-govulncheck
 verify-govulncheck: $(GOVULNCHECK) ## Verify code for vulnerabilities
-	@status=0; \
-	for module in . ./hack/tools; do \
-		echo "Running govulncheck in $$module"; \
-		if [ "$$module" = "." ]; then \
-			$(GOVULNCHECK) -tags=e2e ./... || status=1; \
-		else \
-			(cd "$$module" && $(GOVULNCHECK) sigs.k8s.io/cluster-api/hack/tools/conversion-verifier) || status=1; \
-		fi; \
-	done; \
-	exit $$status
+	$(GOVULNCHECK) -tags=e2e ./...
 
 .PHONY: verify-security
 verify-security: ## Verify code and images for vulnerabilities

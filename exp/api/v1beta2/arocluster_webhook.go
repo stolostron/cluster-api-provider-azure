@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+//nolint:depguard // Downstream ARO webhook uses controller-runtime alongside its API type.
 package v1beta2
 
 import (
