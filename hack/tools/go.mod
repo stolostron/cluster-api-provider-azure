@@ -2,7 +2,7 @@ module sigs.k8s.io/cluster-api-provider-azure/hack/tools
 
 go 1.25.0
 
-toolchain go1.25.12
+toolchain go1.26.11
 
 require sigs.k8s.io/cluster-api/hack/tools v0.0.0-20260617165044-85c17a5f1026
 
