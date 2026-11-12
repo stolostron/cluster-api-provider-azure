@@ -270,6 +270,16 @@ jobs:
         PROCESSED=0
         fail() { echo "::error::$*"; REPORT_FAILED=1; }
 
+        # Fast-forward children share their source branch's issue. Keep this
+        # mapping aligned with docs/DOWNSTREAM.md.
+        issue_owner_branch() {
+          case "$1" in
+            backplane-5.0) echo release-1.26 ;;
+            backplane-5.1|backplane-5.2) echo main ;;
+            *) echo "$1" ;;
+          esac
+        }
+
         # gh issue create aborts on a label that does not exist, which used to
         # mean findings on release-1.26 and the backplane-5.x branches were
         # silently never filed - only main, backplane-2.11 and backplane-2.17
@@ -314,6 +324,10 @@ jobs:
             continue
           fi
 
+          SCANNED_BRANCH="$BRANCH"
+          ISSUE_OWNER=$(issue_owner_branch "$BRANCH")
+          BRANCH="$ISSUE_OWNER"
+
           ensure_label security d93f0b "Security-related issue" || continue
           ensure_label trivy d93f0b "Reported by the Trivy scanner" || continue
           ensure_label "$BRANCH" ededed "Affects the $BRANCH branch" || continue
@@ -334,6 +348,7 @@ jobs:
               echo "**New Detection**: ${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}"
               echo "**Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
               echo "**Branch**: ${BRANCH}"
+              echo "**Scanned branch**: ${SCANNED_BRANCH}"
               echo ""
               echo "### Current Vulnerability Count"
               echo ""
@@ -377,6 +392,7 @@ jobs:
               echo "|-------|-------|"
               echo "| **Scanner** | Trivy |"
               echo "| **Branch** | \`${BRANCH}\` |"
+              echo "| **Scanned branch** | \`${SCANNED_BRANCH}\` |"
               echo "| **🔴 CRITICAL** | $CRITICAL |"
               echo "| **🟠 HIGH** | $HIGH |"
               echo "| **🟡 MEDIUM** | $MEDIUM |"

@@ -254,6 +254,16 @@ jobs:
           PROCESSED=0
           fail() { echo "::error::$*"; REPORT_FAILED=1; }
 
+          # Fast-forward children share their source branch's issue. Keep this
+          # mapping aligned with docs/DOWNSTREAM.md.
+          issue_owner_branch() {
+            case "$1" in
+              backplane-5.0) echo release-1.26 ;;
+              backplane-5.1|backplane-5.2) echo main ;;
+              *) echo "$1" ;;
+            esac
+          }
+
           ensure_label() {
             local label="$1" colour="$2" description="$3"
             if gh api "repos/$GH_REPO/labels/$label" --silent 2>/dev/null; then
@@ -305,6 +315,10 @@ jobs:
               continue
             fi
 
+            SCANNED_BRANCH="$BRANCH"
+            ISSUE_OWNER=$(issue_owner_branch "$BRANCH")
+            BRANCH="$ISSUE_OWNER"
+
             # gh issue create fails outright on an unknown label, which would
             # silently suppress the whole report. Create them idempotently.
             ensure_label security d93f0b "Security-related issue" || continue
@@ -322,9 +336,15 @@ jobs:
             # before anyone read it.
             if [ "$OUTCOME" = "clean" ]; then
               if [ -n "$EXISTING_ISSUE" ]; then
-                gh issue comment "$EXISTING_ISSUE" --body \
-                  "✅ govulncheck is now clean on \`${BRANCH}\` as of [run ${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}). No reachable vulnerabilities remain. Safe to close once you have reviewed what changed." \
-                  || fail "Could not comment on resolved issue #$EXISTING_ISSUE for $BRANCH."
+                if [ "$SCANNED_BRANCH" = "$ISSUE_OWNER" ]; then
+                  gh issue comment "$EXISTING_ISSUE" --body \
+                    "✅ govulncheck is now clean on \`${SCANNED_BRANCH}\` as of [run ${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}). No reachable vulnerabilities remain on this branch. Review any grouped child-branch reports in this issue before closing." \
+                    || fail "Could not comment on resolved issue #$EXISTING_ISSUE for $SCANNED_BRANCH."
+                else
+                  gh issue comment "$EXISTING_ISSUE" --body \
+                    "✅ govulncheck is clean on scanned branch \`${SCANNED_BRANCH}\` as of [run ${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}). This scan did not check issue owner branch \`${ISSUE_OWNER}\`, so it does not establish that the owner's findings are resolved." \
+                    || fail "Could not comment on issue #$EXISTING_ISSUE with the clean result for $SCANNED_BRANCH."
+                fi
               fi
               continue
             fi
@@ -354,6 +374,7 @@ jobs:
               echo "|-------|-------|"
               echo "| **Scanner** | govulncheck |"
               echo "| **Branch** | \`${BRANCH}\` |"
+              echo "| **Scanned branch** | \`${SCANNED_BRANCH}\` |"
               echo "| **Reachable vulnerabilities** | ${REACHABLE} |"
               echo "| **Workflow run** | [${RUN_ID}](${SERVER_URL}/${REPO}/actions/runs/${RUN_ID}) |"
               echo "| **Date** | $(date -u +"%Y-%m-%d %H:%M:%S UTC") |"
