@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+//nolint:depguard // Downstream ARO webhook tests use the controller-runtime fake client.
 package v1beta2
 
 import (
