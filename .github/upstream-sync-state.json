@@ -1,5 +1,5 @@
 {
-  "last_processed_commit": "550a99c621f75a71b74523291e8fc290743c1a0c",
+  "last_processed_commit": "993de4536cc2fee7658fd73d389a77fd7900aa1d",
   "excluded_commits": {
     "cfc2e537a2992353b1dba142588687952d5f2f3f": "grpc v1.82.1 pin already applied downstream via dependency updates"
   }
