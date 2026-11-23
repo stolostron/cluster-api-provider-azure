@@ -36,7 +36,6 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
-	basecontrollers "sigs.k8s.io/cluster-api-provider-azure/controllers"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav2exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 )
@@ -161,7 +160,7 @@ func TestProviderIDListSync_AzureNameMatchesK8sName(t *testing.T) {
 		tracker:    tracker,
 		cluster:    cluster,
 		newResourceReconciler: func(machinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
-			return basecontrollers.NewResourceReconciler(mgmtClient, machinePool, nil, resources)
+			return &aroResourceReconciler{Client: mgmtClient, owner: machinePool, resources: resources}
 		},
 	}
 
@@ -295,7 +294,7 @@ func TestProviderIDListSync_AzureNameDiffersFromK8sName(t *testing.T) {
 		tracker:    tracker,
 		cluster:    cluster,
 		newResourceReconciler: func(machinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
-			return basecontrollers.NewResourceReconciler(mgmtClient, machinePool, nil, resources)
+			return &aroResourceReconciler{Client: mgmtClient, owner: machinePool, resources: resources}
 		},
 	}
 
@@ -433,7 +432,7 @@ func TestProviderIDListSync_BaseDomainPrefixDiffersFromCAPIName(t *testing.T) {
 		tracker:    tracker,
 		cluster:    cluster,
 		newResourceReconciler: func(machinePool *infrav2exp.AROMachinePool, resources []*unstructured.Unstructured) resourceReconciler {
-			return basecontrollers.NewResourceReconciler(mgmtClient, machinePool, nil, resources)
+			return &aroResourceReconciler{Client: mgmtClient, owner: machinePool, resources: resources}
 		},
 	}
 

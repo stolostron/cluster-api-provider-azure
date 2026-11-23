@@ -33,7 +33,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"sigs.k8s.io/cluster-api-provider-azure/controllers"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav2 "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 )
@@ -525,8 +524,8 @@ func TestAROClusterReconciler_reconcileDelete(t *testing.T) {
 			reconciler := &AROClusterReconciler{
 				Client:           fakeClient,
 				WatchFilterValue: "",
-				newResourceReconciler: func(aroCluster *infrav2.AROCluster, resources []*unstructured.Unstructured) *controllers.ResourceReconciler {
-					return controllers.NewResourceReconciler(fakeClient, aroCluster, nil, resources)
+				newResourceReconciler: func(aroCluster *infrav2.AROCluster, resources []*unstructured.Unstructured) *aroResourceReconciler {
+					return &aroResourceReconciler{Client: fakeClient, owner: aroCluster, resources: resources}
 				},
 			}
 
@@ -601,8 +600,8 @@ func TestAROClusterReconciler_reconcileDeleteRequeuesWhenResourcesRemain(t *test
 	reconciler := &AROClusterReconciler{
 		Client:           fakeClient,
 		WatchFilterValue: "",
-		newResourceReconciler: func(ac *infrav2.AROCluster, resources []*unstructured.Unstructured) *controllers.ResourceReconciler {
-			return controllers.NewResourceReconciler(fakeClient, ac, nil, resources)
+		newResourceReconciler: func(ac *infrav2.AROCluster, resources []*unstructured.Unstructured) *aroResourceReconciler {
+			return &aroResourceReconciler{Client: fakeClient, owner: ac, resources: resources}
 		},
 	}
 
