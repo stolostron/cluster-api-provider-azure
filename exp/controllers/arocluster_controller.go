@@ -62,7 +62,7 @@ type AROClusterReconciler struct {
 	client.Client
 	WatchFilterValue string
 
-	newResourceReconciler func(*infra.AROCluster, []*unstructured.Unstructured) *controllers.ResourceReconciler
+	newResourceReconciler func(*infra.AROCluster, []*unstructured.Unstructured) *aroResourceReconciler
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -120,8 +120,13 @@ func (r *AROClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 		PredicateLogger: &log,
 	}
 
-	r.newResourceReconciler = func(aroCluster *infra.AROCluster, resources []*unstructured.Unstructured) *controllers.ResourceReconciler {
-		return controllers.NewResourceReconciler(r.Client, aroCluster, externalTracker, resources, controllers.WithChildrenFirst())
+	r.newResourceReconciler = func(aroCluster *infra.AROCluster, resources []*unstructured.Unstructured) *aroResourceReconciler {
+		return &aroResourceReconciler{
+			Client:    r.Client,
+			resources: resources,
+			owner:     aroCluster,
+			watcher:   externalTracker,
+		}
 	}
 
 	return nil

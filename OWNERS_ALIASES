@@ -5,19 +5,14 @@ aliases:
     - fabriziopandini
     - justinsb
     - neolit123
-    - timothysc
   cluster-api-admins:
     - fabriziopandini
-    - vincepri
   cluster-api-maintainers:
-    - enxebre
     - fabriziopandini
-    - sbueringer
-    - vincepri
+    - JoelSpeed
   cluster-api-azure-maintainers:
     - bryan-cox
     - jackfrancis
     - mboersma
     - nojnhuh
     - willie-yao
-  cluster-api-azure-reviewers: []

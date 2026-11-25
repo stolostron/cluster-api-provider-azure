@@ -43,7 +43,6 @@ import (
 	"sigs.k8s.io/cluster-api-provider-azure/azure/scope"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/keyvaults"
 	"sigs.k8s.io/cluster-api-provider-azure/azure/services/resourceskus"
-	"sigs.k8s.io/cluster-api-provider-azure/controllers"
 	cplane "sigs.k8s.io/cluster-api-provider-azure/exp/api/controlplane/v1beta2"
 	infrav1exp "sigs.k8s.io/cluster-api-provider-azure/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-azure/pkg/mutators"
@@ -106,7 +105,11 @@ func newAROControlPlaneService(scope *scope.AROControlPlaneScope) (*aroControlPl
 		keyVaultSvc: keyVaultSvc,
 		skuCache:    skuCache,
 		newResourceReconciler: func(controlPlane *cplane.AROControlPlane, resources []*unstructured.Unstructured) resourceReconciler {
-			return controllers.NewResourceReconciler(scope.Client, controlPlane, nil, resources)
+			return &aroResourceReconciler{
+				Client:    scope.Client,
+				resources: resources,
+				owner:     controlPlane,
+			}
 		},
 	}
 	acs.Reconcile = acs.reconcile

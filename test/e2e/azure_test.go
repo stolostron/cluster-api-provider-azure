@@ -44,6 +44,8 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-azure/api/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-azure/azure"
+	"sigs.k8s.io/cluster-api-provider-azure/test/e2e/internal/flatcar"
+	"sigs.k8s.io/cluster-api-provider-azure/test/e2e/internal/rke2"
 )
 
 var _ = Describe("Workload cluster creation", func() {
@@ -351,13 +353,20 @@ var _ = Describe("Workload cluster creation", func() {
 
 	Context("Creating a Flatcar sysext cluster [OPTIONAL]", func() {
 		It("With Flatcar control-plane and worker nodes", func() {
+			requestedVersion := e2eConfig.MustGetVariable(capi_e2e.KubernetesVersion)
+			resolveCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+			kubernetesVersion, err := flatcar.Resolve(resolveCtx, requestedVersion)
+			Expect(err).NotTo(HaveOccurred())
+			Logf("Resolved Flatcar Kubernetes version %s to %s", requestedVersion, kubernetesVersion)
+
 			clusterName = getClusterName(clusterNamePrefix, "flatcar-sysext")
 			clusterctl.ApplyClusterTemplateAndWait(ctx, createApplyClusterTemplateInput(
 				specName,
 				withFlavor("flatcar-sysext"),
 				withNamespace(namespace.Name),
 				withClusterName(clusterName),
-				withKubernetesVersion(e2eConfig.MustGetVariable(capi_e2e.KubernetesVersion)),
+				withKubernetesVersion(kubernetesVersion),
 				withControlPlaneMachineCount(1),
 				withWorkerMachineCount(1),
 				withControlPlaneWaiters(clusterctl.ControlPlaneWaiters{
@@ -1091,6 +1100,18 @@ var _ = Describe("Workload cluster creation", func() {
 
 	Context("Creating RKE2 clusters using clusterclass [OPTIONAL]", func() {
 		It("with 3 control plane node and one linux worker node", func() {
+			requestedVersion := e2eConfig.MustGetVariable(capi_e2e.KubernetesVersion)
+			location := e2eConfig.MustGetVariable(AzureLocation)
+			resolveCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+			imageVersions, err := listVersionsInCommunityGallery(resolveCtx, location, azure.DefaultPublicGalleryName, azure.DefaultLinuxGalleryImageName)
+			Expect(err).NotTo(HaveOccurred())
+			kubernetesVersion, err := rke2.Resolve(resolveCtx, requestedVersion, imageVersions)
+			Expect(err).NotTo(HaveOccurred())
+			Logf("Resolved RKE2 Kubernetes version %s to %s, release %s+rke2r1, gallery image %s/%s version %s in %s",
+				requestedVersion, kubernetesVersion, kubernetesVersion, azure.DefaultPublicGalleryName,
+				azure.DefaultLinuxGalleryImageName, strings.TrimPrefix(kubernetesVersion, "v"), location)
+
 			// Use ci-rke2 as the clusterclass name so test infra can find the clusterclass template
 			Expect(os.Setenv("CLUSTER_CLASS_NAME", "ci-rke2")).To(Succeed())
 
@@ -1157,6 +1178,7 @@ spec:
 			clusterctl.ApplyClusterTemplateAndWait(ctx, createApplyClusterTemplateInput(
 				specName,
 				withFlavor("topology-rke2"),
+				withKubernetesVersion(kubernetesVersion),
 				withNamespace(namespace.Name),
 				withClusterName(clusterName),
 				withControlPlaneMachineCount(3),
@@ -1574,6 +1596,37 @@ spec:
 						SkipCleanup:           skipCleanup,
 					}
 				})
+			})
+
+			By("PASSED!")
+		})
+
+		It("Creates a Kueue-admitted RayJob and verifies it enqueues successfully and runs to completion", func() {
+			clusterName = getClusterName(clusterNamePrefix, "kueue-rayjob")
+			kubernetesVersion, err := GetAKSKubernetesVersion(ctx, e2eConfig, AKSKubernetesVersion)
+			Expect(err).NotTo(HaveOccurred())
+
+			clusterctl.ApplyClusterTemplateAndWait(ctx, createApplyClusterTemplateInput(
+				specName,
+				withFlavor("aks-aso-kuberay"),
+				withNamespace(namespace.Name),
+				withClusterName(clusterName),
+				withKubernetesVersion(kubernetesVersion),
+				withWorkerMachineCount(1),
+				withMachinePoolInterval(specName, "wait-worker-nodes"),
+				withControlPlaneWaiters(clusterctl.ControlPlaneWaiters{
+					WaitForControlPlaneInitialized:   WaitForAKSControlPlaneInitialized,
+					WaitForControlPlaneMachinesReady: WaitForAKSControlPlaneReady,
+				}),
+			), result)
+
+			KueueRayJobSpec(ctx, func() KubeRayJobSpecInput {
+				return KubeRayJobSpecInput{
+					BootstrapClusterProxy: bootstrapClusterProxy,
+					Namespace:             namespace,
+					ClusterName:           clusterName,
+					SkipCleanup:           skipCleanup,
+				}
 			})
 
 			By("PASSED!")
