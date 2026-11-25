@@ -143,7 +143,14 @@
       "enabled": false
     },
     {
-      "description": "Keep the Stolostron image updated on main and backplane branches, including its digest.",
+      "description": "Disable regular version and digest updates; Renovate security alerts bypass this rule.",
+      "matchPackageNames": [
+        "*"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Keep Stolostron image tag and digest updates enabled after the security-only default on main, release, and backplane-2 branches.",
       "matchManagers": [
         "dockerfile"
       ],
@@ -152,17 +159,11 @@
       ],
       "matchBaseBranches": [
         "main",
+        "/^release-[0-9]+\\.[0-9]+$/",
         "/^backplane-2\\.[0-9]+$/"
       ],
       "enabled": true,
       "pinDigests": true
-    },
-    {
-      "description": "Disable regular version and digest updates; Renovate security alerts bypass this rule.",
-      "matchPackageNames": [
-        "*"
-      ],
-      "enabled": false
     }
   ],
   "vulnerabilityAlerts": {
